@@ -60,6 +60,7 @@ Deno.serve(async (req) => {
   const aantallen = {
     weekstaten: tel(/^uren\/[^/]+\/weken\//),
     declaraties: tel(/^uren\/[^/]+\/declaraties\//),
+    bekeuringen: tel(/^uren\/[^/]+\/bekeuringen\//),
     ritten: tel(/^ritten\//),
     tankbeurten: tel(/^beheer\/vloot\/tank\//),
   };

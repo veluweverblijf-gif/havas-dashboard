@@ -36,7 +36,8 @@ Implements those capabilities on Supabase:
 | `ritten/<id>` | planned rides |
 | `uren/<key>` | `{chauffeurId, tvt}`; `<key>` = auth uid (chauffeur's own) or `ch-<chauffeurId>` (entered by a beheerder) |
 | `uren/<key>/weken/<jaar>-W<nn>` | week sheet (ma–za) |
-| `uren/<key>/declaraties/<id>` | expense claims |
+| `uren/<key>/declaraties/<id>` | expense claims `{weekKey, datum, soort, oms, bedrag, foto, bron?}` |
+| `uren/<key>/bekeuringen/<id>` | traffic fines, same fields; informational only, not settled in pay |
 | `uren/<key>/maandfotos/<id>` | photos of monthly paper registrations |
 | `beheer/loon` | pay scales |
 | `beheer/nmbrs` | Nmbrs export settings |
