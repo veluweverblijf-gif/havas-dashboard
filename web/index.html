@@ -261,6 +261,12 @@ table.ocr td.n{font-family:var(--f-mono);font-variant-numeric:tabular-nums;text-
 .plan .hd.today{color:var(--accent)}
 .plan .veh{font-family:var(--f-mono);font-size:12.5px;font-weight:500;background:var(--sunk)}
 .plan .veh small{display:block;font-family:var(--f-body);color:var(--muted);font-weight:400}
+.plan .wtype{display:flex;margin-top:6px;border:1px solid var(--line);border-radius:4px;overflow:hidden;width:max-content;max-width:100%}
+.plan .wtype button{font:inherit;font-family:var(--f-body);font-size:11px;font-weight:600;padding:3px 6px;border:0;background:var(--surface);color:var(--muted);cursor:pointer;white-space:nowrap}
+.plan .wtype button+button{border-left:1px solid var(--line)}
+.plan .wtype button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.plan .wtype button:disabled{cursor:wait;opacity:.6}
+.plan .veh .wsoort{display:inline-block;margin-top:4px;font-family:var(--f-body);font-size:11px;color:var(--muted)}
 .plan .cell{display:flex;flex-direction:column;gap:5px;cursor:pointer}
 .plan .cell:hover{background:var(--bg)}
 .plan .cell .add{font-size:11px;color:var(--muted);opacity:0}
@@ -2402,7 +2408,13 @@ function renderPlan(){
   $('#p-new').hidden = !magMaken(); $('#p-new').disabled = !magMaken();
   const today = ymd(new Date());
   let html = `<div class="plan"><div class="hd">Wagen</div>${days.map((d,i)=>`<div class="hd${keys[i]===today?' today':''}">${esc(fmtDag(d))}</div>`).join('')}`;
-  const rows = wa.map(v=>{ const g = VL.wagen[v.id] || {}; return {key:'w:'+v.id, match:r=>!r.uitv && r.wagen===v.id, label:`<span>${esc(v.kenteken)}${g.kraan?' <span title="autolaadkraan">🏗</span>':''}</span><small>${esc(v.oms||g.merkType||'')}</small>`, cls:'veh'}; });
+  /* soort wagen: autolaadkraan (kraan:true) of vrachtwagen met trailer zonder kraan (kraan:false); leeg = nog niet aangegeven */
+  const wSoort = (v, g) => magMaken()
+    ? `<span class="wtype" role="group" aria-label="Soort wagen ${esc(v.kenteken)}">
+        <button type="button" data-wtype="${esc(v.id)}|kraan" aria-pressed="${g.kraan===true}" title="Wagen met autolaadkraan">🏗 Kraan</button>
+        <button type="button" data-wtype="${esc(v.id)}|trailer" aria-pressed="${g.kraan===false}" title="Vrachtwagen met trailer, zonder autolaadkraan">Trailer</button></span>`
+    : (g.kraan===true ? '<span class="wsoort">autolaadkraan</span>' : g.kraan===false ? '<span class="wsoort">trailer, geen kraan</span>' : '');
+  const rows = wa.map(v=>{ const g = VL.wagen[v.id] || {}; return {key:'w:'+v.id, match:r=>!r.uitv && r.wagen===v.id, label:`<span>${esc(v.kenteken)}${g.kraan?' <span title="autolaadkraan">🏗</span>':''}</span><small>${esc(v.oms||g.merkType||'')}</small>${wSoort(v, g)}`, cls:'veh'}; });
   if (inWeek.some(r=>!r.uitv && !wa.find(v=>v.id===r.wagen))) rows.push({key:'', match:r=>!r.uitv && !wa.find(v=>v.id===r.wagen), label:'<span>—</span><small>Geen of verwijderde wagen</small>', cls:'veh'});
   const dNamen = new Map(); (S.beheer ? (PL.inst.derden||[]) : []).forEach(d=>dNamen.set(d.id, d.naam)); derden.forEach(r=>{ if (!dNamen.has(r.uitv)) dNamen.set(r.uitv, r.derdeNaam || 'derde'); });
   dNamen.forEach((naam, id)=>{ if (!derden.some(r=>r.uitv===id) && !magMaken()) return; rows.push({key:'d:'+id, match:r=>r.uitv===id, label:`<span style="font-family:var(--f-body)">${esc(naam)}</span><small>derde</small>`, cls:'veh derde'}); });
@@ -2420,7 +2432,15 @@ function renderPlan(){
     .map(r=>{ const m = chk.get(r.id); const bad = m.some(x=>x[0]==='bad'); return `<div class="msg ${bad?'bad':'warn'}" style="cursor:pointer" data-rit="${r.id}"><b>${esc(fmtDag(parseYmd(r.datum)))} · ${esc(ritLabel(r))} ${esc(r.start)}</b> — ${esc(m.map(x=>x[1]).join('; '))}</div>`; });
   $('#p-meld').innerHTML = meld.length ? meld.join('') : (S.beheer && inWeek.length ? '<div class="msg" style="background:var(--ok-soft);color:var(--ok)">Alle planregels kloppen voor deze week.</div>' : '');
 }
-$('#p-grid').addEventListener('click', e => {
+$('#p-grid').addEventListener('click', async e => {
+  const wt = e.target.closest('[data-wtype]');
+  if (wt){ if (!magMaken()) return; const [id, soort] = wt.dataset.wtype.split('|'); const kraan = soort==='kraan';
+    const huidig = (VL.wagen[id]||{}).kraan; if (huidig === kraan) return;
+    wt.parentNode.querySelectorAll('button').forEach(b=>b.disabled = true);
+    try{ const g = Object.assign({}, VL.wagen[id]||{}, {kraan}); await Store.set('beheer/vloot/wagens/'+id, g); VL.wagen[id] = g;
+      toast(`${waKent(id)}: ${kraan ? 'autolaadkraan' : 'trailer, zonder autolaadkraan'}`); renderPlan(); renderPlanregels(); }
+    catch(err){ toast(errMsg(err)); renderPlan(); }
+    return; }
   const rb = e.target.closest('[data-rit]'); if (rb){ openRit(rb.dataset.rit); return; }
   const cell = e.target.closest('[data-cell]'); if (cell && magMaken()){ const [key, d] = cell.dataset.cell.split('|'); if (!key) return;
     const [t, id] = key.split(':'); openRit(null, t==='w' ? {datum:d, wagen:id} : {datum:d, uitv:id}); }
@@ -2648,7 +2668,7 @@ let VS = null, vsCtl = null;
 function vsContext(){
   const keys = [...Array(6)].map((_,i)=>ymd(addDays(pWeek,i)));
   const wag = wagens().map(w=>{ const g = VL.wagen[w.id]||{}; const std = chauffeurs().filter(c=>c.wagen===w.id).map(c=>c.naam);
-    return `- ${w.kenteken}: ${g.soort||'wagen'}${g.merkType?' ('+g.merkType+')':''}; autolaadkraan: ${g.kraan?'ja':'nee'}; geschikt voor: ${(g.ladingen&&g.ladingen.length)?g.ladingen.join(', '):'alle lading'}; vaste chauffeur: ${std.join(', ')||'geen'}`; }).join('\n');
+    return `- ${w.kenteken}: ${g.soort||'wagen'}${g.merkType?' ('+g.merkType+')':''}; autolaadkraan: ${g.kraan===true?'ja':g.kraan===false?'nee (vrachtwagen met trailer)':'niet aangegeven (behandel als nee)'}; geschikt voor: ${(g.ladingen&&g.ladingen.length)?g.ladingen.join(', '):'alle lading'}; vaste chauffeur: ${std.join(', ')||'geen'}`; }).join('\n');
   const ch = chauffeurs().map(c=>{ const afw = keys.map(k=>beschikOp(c.id,k).map(b=>`${fmtDag(parseYmd(k))}: ${BESCHIK[b.soort]||b.soort}`)).flat();
     return `- ${c.naam}: contract ${contractUren(c.id)} u/wk; standaard wagen ${c.wagen?waKent(c.wagen):'geen'}${afw.length?'; '+afw.join('; '):''}`; }).join('\n');
   const bestaand = Object.values(S.ritten).filter(r=>r.datum>=keys[0] && r.datum<=keys[5]).sort((a,b)=>(a.datum+a.start).localeCompare(b.datum+b.start))
@@ -3180,6 +3200,7 @@ TABBLAD UREN (weekstaat per chauffeur, maandag t/m zaterdag)
 
 TABBLAD PLANNING
 - Bovenaan kies je de stand: Inzien (alleen bekijken), Wijzigen (bestaande ritten aanpassen of verwijderen), Maken (nieuwe ritten). Chauffeurs zien alleen Inzien.
+- Soort wagen: in de stand Maken staat onder elk kenteken een knop "🏗 Kraan" / "Trailer". Kraan = wagen met autolaadkraan; Trailer = vrachtwagen met trailer zonder autolaadkraan. Dit is hetzelfde als het vinkje Autolaadkraan in Planregels en telt mee in de controles (lading die een kraan vraagt) en in het planningsvoorstel. In Inzien/Wijzigen staat het als tekst onder het kenteken.
 - Weekrooster: een rij per wagen (🏗 = autolaadkraan), daaronder rijen per derde partij (charters) en voor beheerders een rij Beschikbaarheid. 🌙 = overnachting, ⛓ = rijdt samen met (kraanwagen), "vast" = vaste rit.
 - Rit maken (stand Maken): klik op een leeg vak of "Nieuwe rit". Velden: datum, status, uitgevoerd door (eigen vloot of een derde, met tarief), wagen, chauffeur, vertrek, klaar, laad- en losadres, lading, hoeveelheid, "Rijdt samen met (kraanwagen)", "Overnachting na deze rit", opmerking. "Tijden naar urenstaat" zet de rittijden in de weekstaat.
 - Planregels (knop, beheerders) met vier onderdelen: Wagens & lading (per ladingtype of laden een kraan vraagt; per wagen autolaadkraan ja/nee en voor welke lading geschikt), Beschikbaarheid (chauffeur vrij, vakantie, ziek, opleiding, of "moet thuis slapen" van/tot; met "Herhaal elke week" geldt het elke week op dezelfde dag(en) vanaf de begindatum, bijv. elke woensdag thuis slapen), Vaste ritten (terugkerend werk per weekdag), Derden (charters met standaard tarief).
