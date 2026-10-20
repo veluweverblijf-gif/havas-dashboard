@@ -1,0 +1,9 @@
+# Instellingen voor de Supabase CLI (alleen nodig als je met de CLI uitrolt)
+project_id = "havas-dashboard"
+
+[functions.claude]
+verify_jwt = true
+
+# de dagelijkse back-up wordt aangeroepen met een eigen geheim (x-backup-secret), niet met een inlog
+[functions.backup]
+verify_jwt = false

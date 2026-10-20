@@ -1,0 +1,9 @@
+.DS_Store
+node_modules/
+.env
+.env.*
+supabase/.temp/
+supabase/.branches/
+# back-ups en exports bevatten personeelsgegevens: nooit in git
+*backup*.json
+havas-gegevens*.json
