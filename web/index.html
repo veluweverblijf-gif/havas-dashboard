@@ -277,6 +277,48 @@ table.ocr td.n{font-family:var(--f-mono);font-variant-numeric:tabular-nums;text-
 .rit .t{font-family:var(--f-mono);font-size:11.5px;color:var(--muted)}
 .rit .r{font-weight:600}
 .legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:10px}
+/* planning: links kentekens, midden weekrooster, rechts vrachtenlijst */
+main.wrap:has(#pane-plan:not([hidden])){max-width:1720px}
+.p-lay{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-items:start}
+.p-lay.met-vr{grid-template-columns:minmax(0,1fr) 330px}
+.p-lay.met-vr .plan{grid-template-columns:136px repeat(7,minmax(100px,1fr));min-width:840px}
+#vs-body{grid-template-columns:minmax(0,1fr)}
+#vs-body>*{min-width:0}
+@media (max-width:1180px){.p-lay.met-vr{grid-template-columns:minmax(0,1fr)}}
+.p-vr{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:10px;display:grid;gap:10px;position:sticky;top:8px;max-height:calc(100vh - 16px);overflow:auto}
+.p-vr h3{margin:0;font-family:var(--f-display);font-size:17px;text-transform:uppercase;letter-spacing:.03em}
+.p-vr .vr-kop{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.p-vr textarea{min-height:92px;font-size:13px}
+.p-vr .vr-knoppen{display:flex;gap:6px;flex-wrap:wrap}
+.vr-lijst{display:grid;gap:6px}
+.vr-kaart{border:1px solid var(--line);border-radius:4px;padding:6px 8px;background:var(--bg);display:grid;gap:3px;font-size:12.5px}
+.vr-kaart.vol{background:var(--ok-soft);border-color:transparent}
+.vr-kaart .r1{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.vr-kaart .r1 b{font-family:var(--f-mono)}
+.vr-kaart .route{font-weight:600}
+.vr-kaart .tags{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+.vr-kaart .tags .chip{font-size:11px;padding:1px 6px}
+.vr-kaart .stand{font-family:var(--f-mono);font-size:12px;white-space:nowrap}
+.vr-balk{height:4px;border-radius:2px;background:var(--sunk);overflow:hidden}
+.vr-balk i{display:block;height:100%;background:var(--ok)}
+.vr-kaart .acts{display:flex;gap:4px;justify-content:flex-end}
+.vr-kaart .acts button{padding:1px 7px;font-size:11px}
+.p-vr details{border-top:1px solid var(--line);padding-top:8px;font-size:12.5px}
+.p-vr summary{cursor:pointer;font-weight:600}
+.p-vr ul{margin:6px 0 0;padding-left:18px;display:grid;gap:3px}
+.p-vr li .x{border:0;background:none;color:var(--bad);cursor:pointer;padding:0 4px;font-size:13px}
+.vs-stappen{margin:0;padding-left:20px;display:grid;gap:4px;font-size:13px}
+.vs-stappen li.ok::marker{content:"✓  ";color:var(--ok)}
+.vs-stappen li.bezig::marker{content:"…  ";color:var(--accent)}
+.vs-stappen li.fout::marker{content:"✕  ";color:var(--bad)}
+.vs-stappen li.wacht{color:var(--muted)}
+.vs-oordeel{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 12px;border-radius:4px;font-size:14px}
+.vs-oordeel.ja{background:var(--ok-soft)} .vs-oordeel.deels{background:var(--warn-soft)} .vs-oordeel.nee{background:var(--bad-soft)}
+.vs-oordeel b.groot{font-family:var(--f-display);font-size:20px;text-transform:uppercase}
+.vs-vraag{display:grid;gap:4px;padding:8px;border:1px solid var(--line);border-radius:4px;background:var(--bg)}
+.vs-vraag small{color:var(--muted)}
+.vs-blok h3{margin:0 0 6px;font-size:14px}
+.vs-blok ul{margin:0;padding-left:18px;display:grid;gap:3px;font-size:13px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
 /* dialog */
 dialog{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:var(--ink);padding:0;width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 48px)}
@@ -415,8 +457,10 @@ dialog::backdrop{background:rgba(10,14,11,.5)}
         <button class="btn primary small" id="p-new">Nieuwe rit</button>
       </div>
       <div class="tiles" id="p-tiles"></div>
-      <div class="scroll" id="p-grid"></div>
-      <div id="p-meld" class="list" style="margin-top:10px"></div>
+      <div class="p-lay" id="p-lay">
+        <div style="min-width:0"><div class="scroll" id="p-grid"></div><div id="p-meld" class="list" style="margin-top:10px"></div></div>
+        <aside class="p-vr" id="p-vr" hidden aria-label="Vrachten deze week"></aside>
+      </div>
       <div class="legend">
         <span><i style="background:var(--accent)"></i>Gepland</span>
         <span><i style="background:var(--warn)"></i>Onderweg</span>
@@ -625,6 +669,7 @@ dialog::backdrop{background:rgba(10,14,11,.5)}
     <label>Hoeveelheid<input type="number" id="r-hv" min="0" step="0.1"></label>
     <label>Eenheid<select id="r-eh"><option>m³</option><option>ton</option><option>stuks</option></select></label>
   </div>
+  <label>Hoort bij vracht<select id="r-vracht"></select></label>
   <div class="row2">
     <label>Rijdt samen met (kraanwagen)<select id="r-mee"></select></label>
     <label style="display:flex;align-items:center;gap:8px;color:var(--ink);align-self:end;padding-bottom:8px"><input type="checkbox" id="r-overn" style="width:auto"> Overnachting na deze rit</label>
@@ -657,6 +702,14 @@ dialog::backdrop{background:rgba(10,14,11,.5)}
   <div id="vs-sluit" hidden class="confirm" style="justify-content:space-between">Sluiten zonder in te plannen? Het voorstel gaat verloren. <span style="display:flex;gap:6px"><button class="btn small danger" type="button" id="vs-sluit-ja">Ja, sluiten</button><button class="btn small" type="button" id="vs-sluit-nee">Nee</button></span></div>
   <div id="vs-body" style="display:grid;gap:10px"></div>
   <div class="actions" id="vs-acties"></div>
+</div></dialog>
+
+<!-- Vrachten inlezen / wijzigen -->
+<dialog id="vr-dlg" style="width:min(1100px,calc(100vw - 16px))"><div class="dlg">
+  <div class="dlg-h"><h2 id="vr-titel">Vrachten controleren</h2><div class="vensterknoppen"><button class="vk-btn" type="button" id="vr-close" title="Sluiten" aria-label="Sluiten">&#215;</button></div></div>
+  <div id="vr-body" style="display:grid;gap:10px"></div>
+  <div id="vr-msg" class="msg" hidden></div>
+  <div class="actions"><button class="btn primary" type="button" id="vr-ok">Akkoord, zet in vrachtenlijst</button><button class="btn" type="button" id="vr-annuleer">Annuleren</button></div>
 </div></dialog>
 
 <!-- Import-dialoog -->
@@ -850,6 +903,8 @@ function subscribeGlobal(){
     globalUnsubs.push(Store.subDoc('beheer/planning', d=>{ PL.inst = Object.assign({kraanNodig:{Rondhout:true, Stamhout:true, Industriehout:true}, derden:[]}, d||{}); renderPlan(); renderPlanregels(); }));
     globalUnsubs.push(Store.subCol('beheer/planning/beschik', l=>{ PL.beschik = Object.fromEntries(l.map(x=>[x.id,x.data])); renderPlan(); renderPlanregels(); }));
     globalUnsubs.push(Store.subCol('beheer/planning/vast', l=>{ PL.vast = Object.fromEntries(l.map(x=>[x.id,x.data])); renderPlan(); renderPlanregels(); }));
+    globalUnsubs.push(Store.subCol('beheer/planning/vrachten', l=>{ PL.vrachten = Object.fromEntries(l.map(x=>[x.id,x.data])); renderPlan(); }));
+    globalUnsubs.push(Store.subCol('beheer/planning/weken', l=>{ PL.weken = Object.fromEntries(l.map(x=>[x.id,x.data])); renderPlan(); }));
     globalUnsubs.push(Store.subDoc('beheer/kostprijs', d=>{ VL.kp = Object.assign({opslag:35}, d||{}); renderVloot(); }));
   }
   if (S.role==='beheerder'){
@@ -2312,7 +2367,7 @@ function vulMaanden(sel, standaard){
    Ritten: ritten/<id> {datum,status,uitv('' = eigen vloot, anders derde-id),derdeNaam,tarief,wagen,chauffeur,start,eind,laad,los,lading,hv,eh,overnachting,meeMet,vastId,bron,opm}
    Planregels (alleen beheerders): beheer/planning {kraanNodig, derden[]}, beheer/planning/beschik/<id>, beheer/planning/vast/<id>; wageneigenschappen in beheer/vloot/wagens/<id> {kraan, ladingen[]} */
 const LADING = ['Rondhout','Stamhout','Industriehout','Biomassa / chips','Gezaagd hout','Overig'];
-const PL = { inst:{ kraanNodig:{Rondhout:true, Stamhout:true, Industriehout:true}, derden:[] }, beschik:{}, vast:{} };
+const PL = { inst:{ kraanNodig:{Rondhout:true, Stamhout:true, Industriehout:true}, derden:[] }, beschik:{}, vast:{}, vrachten:{}, weken:{} };
 const BESCHIK = {thuis:'moet thuis slapen', vrij:'vrij', vakantie:'vakantie', ziek:'ziek', opleiding:'opleiding/cursus'};
 const derdeVan = id => (PL.inst.derden||[]).find(d=>d.id===id);
 const ritLabel = r => r.uitv ? (r.derdeNaam || (derdeVan(r.uitv)||{}).naam || 'derde') : (r.wagen ? waKent(r.wagen) : '—');
@@ -2427,6 +2482,7 @@ function renderPlan(){
     keys.forEach(k=>{ const items = chauffeurs().flatMap(c=>beschikOp(c.id,k).map(b=>`<span class="chip ${b.soort==='thuis'?'warn':'bad'}" title="${esc(b.opm||'')}">${esc(c.naam.split(' ')[0])}: ${esc(BESCHIK[b.soort]||b.soort)}</span>`));
       html += `<div class="bes">${items.join('')}</div>`; }); }
   $('#p-grid').innerHTML = html + '</div>';
+  renderVrachten();
   // meldingen
   const meld = inWeek.filter(r=>chk.has(r.id)).sort((a,b)=>(a.datum+a.start).localeCompare(b.datum+b.start))
     .map(r=>{ const m = chk.get(r.id); const bad = m.some(x=>x[0]==='bad'); return `<div class="msg ${bad?'bad':'warn'}" style="cursor:pointer" data-rit="${r.id}"><b>${esc(fmtDag(parseYmd(r.datum)))} · ${esc(ritLabel(r))} ${esc(r.start)}</b> — ${esc(m.map(x=>x[1]).join('; '))}</div>`; });
@@ -2506,7 +2562,8 @@ function readRit(){ const uitv = $('#r-uitv').value; const tf = getal($('#r-tari
     tarief: uitv && Number.isFinite(tf) ? tf : null, wagen: uitv ? '' : $('#r-wagen').value, chauffeur: uitv ? '' : $('#r-chauffeur').value,
     start:$('#r-start').value, eind:$('#r-eind').value, laad:$('#r-laad').value.trim(), los:$('#r-los').value.trim(), lading:$('#r-lading').value,
     hv: $('#r-hv').value===''? null : Number($('#r-hv').value), eh:$('#r-eh').value, overnachting: $('#r-overn').checked, meeMet: $('#r-mee').value || null, opm:$('#r-opm').value.trim(),
-    vastId: (S.ritten[$('#r-id').value]||{}).vastId || null }; }
+    vastId: (S.ritten[$('#r-id').value]||{}).vastId || null, vrachtId: $('#r-vracht').value || null,
+    bron: (S.ritten[$('#r-id').value]||{}).bron || null }; }
 function ritMsgs(){
   const r = readRit(); if (!r.datum || !r.start || !r.eind){ $('#r-msgs').innerHTML=''; return; }
   const tmp = Object.assign({}, S.ritten); const id = r.id||'__new'; tmp[id] = Object.assign({}, r, {id});
@@ -2515,7 +2572,19 @@ function ritMsgs(){
 }
 ['#r-datum','#r-wagen','#r-chauffeur','#r-start','#r-eind','#r-lading','#r-mee','#r-overn','#r-laad','#r-uitv'].forEach(s=>$(s).addEventListener('input', ritMsgs));
 $('#r-uitv').addEventListener('change', () => { toonUitv(); ritMsgs(); });
-$('#r-datum').addEventListener('change', () => { vulMee($('#r-datum').value, $('#r-id').value, $('#r-mee').value); ritMsgs(); });
+$('#r-datum').addEventListener('change', () => { vulMee($('#r-datum').value, $('#r-id').value, $('#r-mee').value); vulVracht($('#r-datum').value, $('#r-vracht').value); ritMsgs(); });
+$('#r-vracht').addEventListener('change', () => { const v = PL.vrachten[$('#r-vracht').value]; if (!v) return;
+  if (!$('#r-laad').value.trim()) $('#r-laad').value = v.van || ''; if (!$('#r-los').value.trim()) $('#r-los').value = v.naar || '';
+  if (v.lading && LADING.includes(v.lading)) $('#r-lading').value = v.lading; ritMsgs(); });
+function vulVracht(datum, sel){
+  const el = $('#r-vracht'); if (!el) return; const wl = $('#r-vracht').closest('label');
+  if (!S.beheer){ wl.hidden = true; return; } wl.hidden = false;
+  const wid = datum ? weekId(mondayOf(parseYmd(datum))) : weekId(pWeek);
+  const lijst = Object.entries(PL.vrachten).filter(([,v])=>v.week===wid).sort((a,b)=>(a[1].volgorde||0)-(b[1].volgorde||0));
+  el.innerHTML = '<option value="">— geen / losse rit —</option>' + lijst.map(([id,v])=>`<option value="${esc(id)}">${esc(vrLabel(v))}</option>`).join('')
+    + (sel && !lijst.some(([id])=>id===sel) && PL.vrachten[sel] ? `<option value="${esc(sel)}">${esc(vrLabel(PL.vrachten[sel]))} (andere week)</option>` : '');
+  el.value = sel && [...el.options].some(o=>o.value===sel) ? sel : '';
+}
 function openRit(id, preset={}){
   $('#rit-form').reset(); $('#r-confirm').innerHTML='';
   const r = id ? Object.assign({id}, S.ritten[id]) : Object.assign({status:'gepland', start:'06:00', eind:'15:00', lading:'Rondhout', eh:'m³'}, preset);
@@ -2526,7 +2595,7 @@ function openRit(id, preset={}){
   $('#r-wagen').value = r.wagen || ''; $('#r-chauffeur').value = r.chauffeur || '';
   $('#r-start').value=r.start||''; $('#r-eind').value=r.eind||''; $('#r-laad').value=r.laad||''; $('#r-los').value=r.los||'';
   $('#r-lading').value=r.lading||'Rondhout'; $('#r-hv').value=r.hv??''; $('#r-eh').value=r.eh||'m³'; $('#r-opm').value=r.opm||''; $('#r-overn').checked = !!r.overnachting;
-  vulMee(r.datum, id, r.meeMet); toonUitv();
+  vulMee(r.datum, id, r.meeMet); toonUitv(); vulVracht(r.datum, r.vrachtId);
   const bewerk = id ? magWijzigen() : magMaken();
   $('#rit-title').textContent = !id ? 'Nieuwe rit' : bewerk ? 'Rit wijzigen' : 'Rit bekijken';
   $('#rit-form').querySelectorAll('input,select,textarea').forEach(el=>{ if (el.type!=='hidden') el.disabled = !bewerk; });
@@ -2650,6 +2719,167 @@ $('#pr-body').addEventListener('click', async e => { const d = e.target.dataset;
     else if (e.target.id==='prv-annuleer'){ prVastEdit = null; $('#pr-body').innerHTML=''; renderPlanregels(); }
   }catch(err){ toast(errMsg(err)); } });
 
+
+/* ---------- VRACHTEN (orderboek per week, alleen beheerders) ----------
+   beheer/planning/vrachten/<id> {week:'2026-W44', aantal, soort, lading, van, naar, dag:'wo'|'' , wagen:<id>|'' , opm, zeker, volgorde, aangemaakt}
+   beheer/planning/weken/<week> {afspraken:[tekst...]}   — randvoorwaarden die de planner intypte (gaan mee naar het planningsvoorstel) */
+const DAGWOORD = {maandag:'ma',dinsdag:'di',woensdag:'wo',donderdag:'do',vrijdag:'vr',zaterdag:'za',ma:'ma',di:'di',wo:'wo',do:'do',vr:'vr',za:'za'};
+const DAGNAAM = {ma:'maandag',di:'dinsdag',wo:'woensdag',do:'donderdag',vr:'vrijdag',za:'zaterdag'};
+const vrWeek = () => weekId(pWeek);
+function vrachtenWeek(wid){ wid = wid || vrWeek(); return Object.entries(PL.vrachten).filter(([,v])=>v.week===wid).map(([id,v])=>Object.assign({id}, v)).sort((a,b)=>(a.volgorde||0)-(b.volgorde||0) || String(a.aangemaakt).localeCompare(String(b.aangemaakt))); }
+function afsprakenWeek(wid){ const d = PL.weken[wid || vrWeek()]; return Array.isArray(d && d.afspraken) ? d.afspraken : []; }
+const vrLabel = v => `${v.aantal}× ${v.soort || v.lading || 'vracht'} · ${v.van || '?'} → ${v.naar || '?'}${v.dag ? ' · ' + DAGNAAM[v.dag] : ''}`;
+const titelCase = t => String(t||'').trim().replace(/\s+/g,' ').replace(/(^|[\s\/(-])(\p{L})/gu, (m,a,b)=>a + b.toUpperCase());
+function plaatsPast(adres, plaats){ const a = norm(adres); if (!a || !plaats) return false; return String(plaats).split(/\/|\bof\b|,/i).map(norm).filter(x=>x.length>=3).some(p=>a.includes(p)); }
+/* hoeveel ritten per vracht al in het rooster staan: eerst ritten met vrachtId, daarna losse ritten die op laad- en losplaats passen */
+function vrStand(wid){
+  wid = wid || vrWeek(); const mon = mondayFromWeekId(wid); const k0 = ymd(mon), k6 = ymd(addDays(mon,6));
+  const vr = vrachtenWeek(wid); const tel = Object.fromEntries(vr.map(v=>[v.id,0]));
+  const ritten = Object.values(S.ritten).filter(r=>r.datum>=k0 && r.datum<=k6);
+  const los = [];
+  ritten.forEach(r=>{ if (r.vrachtId && tel[r.vrachtId]!=null) tel[r.vrachtId]++; else if (!r.vrachtId) los.push(r); });
+  los.forEach(r=>{ const v = vr.find(v=>tel[v.id] < (Number(v.aantal)||0) && plaatsPast(r.laad, v.van) && plaatsPast(r.los, v.naar)); if (v) tel[v.id]++; });
+  return tel;
+}
+function vrLadingVan(woord){ const n = norm(woord); if (!n) return '';
+  if (n.includes('rondhout')) return 'Rondhout'; if (n.includes('stamhout') || n.includes('stammen')) return 'Stamhout'; if (n.includes('industrie')) return 'Industriehout';
+  if (n.includes('biomassa') || n.includes('chips') || n.includes('snipper')) return 'Biomassa / chips'; if (n.includes('gezaagd') || n.includes('planken') || n.includes('balken')) return 'Gezaagd hout';
+  return ''; }
+/* Vrije tekst → vrachten + afspraken. Bewust zonder AI: voorspelbaar en controleerbaar. */
+function vrParse(tekst){
+  const zinnen = String(tekst||'').split(/\n+|(?<=[.!?;])\s+/).map(z=>z.trim().replace(/[.;]+$/,'').trim()).filter(z=>z.length>1);
+  const vrachten = [], afspraken = [];
+  for (const z of zinnen){
+    const m = z.match(/^(?:(?:en|ook|plus|nog)\s+)?(\d+)\s*(?:x|×)?\s*(?:vrachten|vracht|ritten|rit|loads?|wagens?)\b\s*(.*)$/i);
+    if (!m){ afspraken.push(z); continue; }
+    const aantal = Number(m[1]); let rest = m[2];
+    const iVan = rest.search(/\b(?:vanaf|van|uit)\b/i), iNaar = rest.search(/\bnaar\b/i);
+    let soort = '', van = '', naar = '', extra = '';
+    if (iVan >= 0){ soort = rest.slice(0, iVan).trim(); const naVan = rest.slice(iVan).replace(/^(?:vanaf|van|uit)\s+/i,'');
+      const j = naVan.search(/\bnaar\b/i); if (j >= 0){ van = naVan.slice(0, j).trim(); const naNaar = naVan.slice(j).replace(/^naar\s+/i,'');
+        const k = naNaar.search(/\s(?:door|op|met|voor|via|in week|liefst|bij voorkeur)\b|,|\(/i); naar = (k>=0 ? naNaar.slice(0,k) : naNaar).trim(); extra = k>=0 ? naNaar.slice(k).replace(/^[,\s]+/,'').trim() : ''; }
+      else van = naVan.trim(); }
+    else if (iNaar >= 0){ soort = rest.slice(0, iNaar).trim(); const naNaar = rest.slice(iNaar).replace(/^naar\s+/i,''); const k = naNaar.search(/\s(?:door|op|met|voor|via)\b|,|\(/i); naar = (k>=0?naNaar.slice(0,k):naNaar).trim(); extra = k>=0?naNaar.slice(k).trim():''; }
+    else { soort = rest.trim(); }
+    const nz = norm(z); const wagen = (S.stam.wagens.find(w=>nz.includes(norm(w.kenteken))) || {}).id || '';
+    const dm = z.toLowerCase().match(/\b(maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag)\b/) || z.toLowerCase().match(/\bop\s+(ma|di|wo|do|vr|za)\b/);
+    const dag = dm ? DAGWOORD[dm[1]] : '';
+    const lading = vrLadingVan(soort);
+    const twijfel = [];
+    if (!van) twijfel.push('laadplaats niet gevonden'); if (!naar) twijfel.push('losplaats niet gevonden');
+    if (/\/|\bof\b/i.test(van) || /\/|\bof\b/i.test(naar)) twijfel.push('meerdere plaatsen genoemd');
+    if (!(aantal > 0)) twijfel.push('aantal ontbreekt');
+    vrachten.push({ aantal, soort: soort || 'vracht', lading, van: titelCase(van), naar: titelCase(naar), dag, wagen, opm: extra, bron: z,
+      zeker: (!van || !naar || !(aantal>0)) ? 'laag' : twijfel.length ? 'middel' : 'hoog', twijfel, mee: true });
+  }
+  return { vrachten, afspraken: afspraken.map(a=>({tekst: a.charAt(0).toUpperCase() + a.slice(1), mee: true})) };
+}
+let VR = null;  // {rijen, afspraken, edit:id|null}
+function vrDlgToon(){
+  if (!VR) return;
+  const wsel = sel => '<option value="">—</option>' + wagens().map(w=>`<option value="${esc(w.id)}"${w.id===sel?' selected':''}>${esc(w.kenteken)}</option>`).join('');
+  const dsel = sel => '<option value="">geen voorkeur</option>' + Object.entries(DAGNAAM).map(([k,l])=>`<option value="${k}"${k===sel?' selected':''}>${l}</option>`).join('');
+  const lsel = sel => '<option value="">—</option>' + LADING.map(l=>`<option${l===sel?' selected':''}>${esc(l)}</option>`).join('');
+  const rij = (v,i) => `<tr data-i="${i}" class="${!v.mee?'zk-leeg':'zk-'+v.zeker}${v.zeker==='laag'&&v.mee?' heeft-fout':''}">
+    <td><input type="checkbox" data-f="mee"${v.mee?' checked':''} style="width:auto;height:auto"></td>
+    <td><input type="number" data-f="aantal" min="1" step="1" value="${esc(v.aantal)}" style="width:4.5em"></td>
+    <td><input data-f="soort" value="${esc(v.soort)}" style="width:7em"></td>
+    <td><select data-f="lading">${lsel(v.lading)}</select></td>
+    <td><input data-f="van" value="${esc(v.van)}" style="width:11em"></td>
+    <td><input data-f="naar" value="${esc(v.naar)}" style="width:11em"></td>
+    <td><select data-f="dag">${dsel(v.dag)}</select></td>
+    <td><select data-f="wagen">${wsel(v.wagen)}</select></td>
+    <td><input data-f="opm" value="${esc(v.opm||'')}" style="width:12em"></td>
+    <td style="min-width:14em">${v.bron?`<small style="color:var(--muted)">“${esc(v.bron)}”</small>`:''}${(v.twijfel||[]).map(t=>`<small style="color:var(--${v.zeker==='laag'?'bad':'warn'})">${esc(t)}</small>`).join('')}</td></tr>`;
+  const n = VR.rijen.filter(v=>v.mee).reduce((t,v)=>t+(Number(v.aantal)||0),0);
+  $('#vr-titel').textContent = VR.edit ? 'Vracht wijzigen' : `Vrachten controleren · week ${isoWeek(pWeek).week}`;
+  $('#vr-body').innerHTML = `${VR.edit ? '' : `<p style="margin:0">${VR.rijen.length} vrachtregel${VR.rijen.length===1?'':'s'} herkend, samen <b>${n} vracht${n===1?'':'en'}</b>. Groen = zeker, geel = controleer, rood = vul aan. Pas aan waar nodig; regels zonder vinkje worden niet opgeslagen.</p>`}
+    ${VR.rijen.length ? `<div class="scroll"><table class="staat ocr" style="min-width:1000px"><thead><tr><th>Mee</th><th>Aantal</th><th>Omschrijving</th><th>Lading</th><th>Laden in</th><th>Lossen in</th><th>Dag</th><th>Wagen</th><th>Opmerking</th><th>Uit je tekst</th></tr></thead><tbody>${VR.rijen.map(rij).join('')}</tbody></table></div>` : '<div class="msg warn">Geen vrachten herkend. Schrijf per vracht bijvoorbeeld: “10 vrachten hout van Bawinkel naar Uddel”.</div>'}
+    ${VR.edit ? '' : `<div class="vs-blok"><h3>Afspraken en randvoorwaarden (${VR.afspraken.filter(a=>a.mee).length})</h3>
+      <p class="hint" style="margin:0 0 6px">Zinnen zonder vracht. Ze worden bewaard bij deze week en gaan mee naar het planningsvoorstel.</p>
+      ${VR.afspraken.length ? `<div style="display:grid;gap:4px">${VR.afspraken.map((a,i)=>`<label style="display:flex;gap:8px;align-items:center;color:var(--ink)"><input type="checkbox" data-af="${i}"${a.mee?' checked':''} style="width:auto"><input data-aftekst="${i}" value="${esc(a.tekst)}"></label>`).join('')}</div>` : '<p class="hint" style="margin:0">Geen.</p>'}</div>`}`;
+  $('#vr-body').style.zoom = ocrZoom/100;
+}
+function vrOpen(rijen, afspraken, edit){ VR = { rijen, afspraken: afspraken||[], edit: edit||null }; $('#vr-msg').hidden = true; vrDlgToon(); $('#vr-dlg').showModal(); }
+$('#vr-body').addEventListener('change', e => { if (!VR) return; const t = e.target;
+  if (t.dataset.af != null){ VR.afspraken[Number(t.dataset.af)].mee = t.checked; return; }
+  if (t.dataset.aftekst != null){ VR.afspraken[Number(t.dataset.aftekst)].tekst = t.value; return; }
+  const tr = t.closest('tr[data-i]'); if (!tr) return; const v = VR.rijen[Number(tr.dataset.i)]; const f = t.dataset.f; if (!f) return;
+  if (f==='mee') v.mee = t.checked; else if (f==='aantal') v.aantal = Math.round(Number(t.value)||0); else v[f] = t.value;
+  // na handmatige aanvulling opnieuw beoordelen
+  v.twijfel = []; if (!v.van) v.twijfel.push('laadplaats ontbreekt'); if (!v.naar) v.twijfel.push('losplaats ontbreekt'); if (!(v.aantal>0)) v.twijfel.push('aantal ontbreekt');
+  v.zeker = v.twijfel.length ? 'laag' : 'hoog'; vrDlgToon(); });
+$('#vr-close').onclick = $('#vr-annuleer').onclick = () => { VR = null; $('#vr-dlg').close(); document.body.appendChild($('#toast')); };
+$('#vr-ok').onclick = async () => {
+  if (!VR) return; const mee = VR.rijen.filter(v=>v.mee);
+  const fout = mee.find(v=>!(v.aantal>0) || !v.van || !v.naar);
+  if (fout){ $('#vr-msg').className = 'msg bad'; $('#vr-msg').hidden = false; $('#vr-msg').textContent = 'Elke vracht heeft een aantal, een laadplaats en een losplaats nodig (rode regels).'; return; }
+  const btn = $('#vr-ok'); btn.disabled = true;
+  try{
+    const wid = vrWeek(); let volg = vrachtenWeek(wid).reduce((m,v)=>Math.max(m, v.volgorde||0), 0);
+    for (const v of mee){
+      const doc = { week: wid, aantal: Number(v.aantal), soort: v.soort||'', lading: v.lading||'', van: v.van.trim(), naar: v.naar.trim(), dag: v.dag||'', wagen: v.wagen||'', opm: (v.opm||'').trim(),
+        zeker: 'hoog', bron: v.bron || '', volgorde: v.volgorde || ++volg, aangemaakt: v.aangemaakt || new Date().toISOString() };
+      await Store.set('beheer/planning/vrachten/' + (VR.edit || newId()), doc);
+    }
+    const nieuw = VR.afspraken.filter(a=>a.mee && a.tekst.trim()).map(a=>a.tekst.trim());
+    if (nieuw.length){ const oud = afsprakenWeek(wid); await Store.set('beheer/planning/weken/' + wid, { afspraken: [...oud, ...nieuw.filter(a=>!oud.includes(a))] }); }
+    const n = mee.reduce((t,v)=>t+Number(v.aantal),0);
+    const was = VR.edit; VR = null; $('#vr-dlg').close(); document.body.appendChild($('#toast'));
+    if (!was && $('#vr-tekst')) $('#vr-tekst').value = '';
+    toast(was ? 'Vracht gewijzigd' : `${n} vracht${n===1?'':'en'} toegevoegd aan week ${isoWeek(pWeek).week}${nieuw.length?`, ${nieuw.length} afspra${nieuw.length===1?'ak':'ken'} bewaard`:''}.`);
+  }catch(err){ $('#vr-msg').className = 'msg bad'; $('#vr-msg').hidden = false; $('#vr-msg').textContent = errMsg(err); }
+  finally{ btn.disabled = false; }
+};
+function renderVrachten(){
+  const box = $('#p-vr'), lay = $('#p-lay'); if (!box) return;
+  if (!S.beheer){ box.hidden = true; lay.classList.remove('met-vr'); return; }
+  box.hidden = false; lay.classList.add('met-vr');
+  const wid = vrWeek(), wk = isoWeek(pWeek).week, mk = magMaken();
+  const vr = vrachtenWeek(wid), tel = vrStand(wid), af = afsprakenWeek(wid);
+  const totaal = vr.reduce((t,v)=>t+(Number(v.aantal)||0),0), gepl = vr.reduce((t,v)=>t+Math.min(tel[v.id]||0, Number(v.aantal)||0),0);
+  const wa = wagens(); const kr = wa.filter(w=>(VL.wagen[w.id]||{}).kraan===true), tr = wa.filter(w=>(VL.wagen[w.id]||{}).kraan===false), onb = wa.filter(w=>(VL.wagen[w.id]||{}).kraan==null);
+  const keys = [...Array(6)].map((_,i)=>ymd(addDays(pWeek,i)));
+  const afw = keys.map(k=>{ const l = chauffeurs().flatMap(c=>beschikOp(c.id,k).map(b=>`${c.naam.split(' ')[0]} (${BESCHIK[b.soort]||b.soort})`)); return l.length ? `<li><b>${esc(fmtDag(parseYmd(k)))}</b>: ${esc(l.join(', '))}</li>` : ''; }).join('');
+  // tekstvak niet overschrijven terwijl je typt
+  const oudeTekst = $('#vr-tekst') ? $('#vr-tekst').value : ''; const hadFocus = document.activeElement && document.activeElement.id==='vr-tekst';
+  box.innerHTML = `<div class="vr-kop"><h3>Vrachten week ${wk}</h3><span class="chip ${totaal && gepl>=totaal ? 'ok' : totaal ? 'warn' : ''}">${totaal} vracht${totaal===1?'':'en'} · ${gepl} gepland · ${totaal-gepl} open</span></div>
+    ${mk ? `<label style="font-size:12.5px">Typ of plak de vrachten (en afspraken) voor deze week
+      <textarea id="vr-tekst" placeholder="Bijv.&#10;10 vrachten hout van Bawinkel naar Uddel&#10;1 vracht hout van Putten naar Enschede door 29-BZN-3 op woensdag&#10;Elke dag maximaal 6 vrachten lossen in Uddel"></textarea></label>
+      <div class="vr-knoppen"><button class="btn primary small" type="button" id="vr-lees">Inlezen en controleren</button><button class="btn small" type="button" id="vr-los">+ Vracht</button></div>`
+      : `<p class="hint" style="margin:0">Vrachten toevoegen of wijzigen kan in de stand Maken.</p>`}
+    <div class="vr-lijst">${vr.length ? vr.map(v=>{ const n = Number(v.aantal)||0, g = Math.min(tel[v.id]||0, n), over = (tel[v.id]||0) - n;
+      return `<div class="vr-kaart${n && g>=n ? ' vol' : ''}">
+        <div class="r1"><span><b>${n}×</b> ${esc(v.soort || v.lading || 'vracht')}</span><span class="stand" title="gepland / gevraagd">${g}/${n}${over>0?` <span style="color:var(--bad)">+${over}</span>`:''}</span></div>
+        <div class="route">${esc(v.van)} → ${esc(v.naar)}</div>
+        ${v.dag || v.wagen || v.opm || v.lading ? `<div class="tags">${v.lading && v.lading!==v.soort ? `<span class="chip">${esc(v.lading)}</span>` : ''}${v.dag?`<span class="chip warn">${esc(DAGNAAM[v.dag])}</span>`:''}${v.wagen?`<span class="chip">${esc(waKent(v.wagen))}</span>`:''}${v.opm?`<small style="color:var(--muted)">${esc(v.opm)}</small>`:''}</div>` : ''}
+        <div class="vr-balk"><i style="width:${n ? Math.round(g/n*100) : 0}%"></i></div>
+        ${mk ? `<div class="acts"><button class="btn small" type="button" data-vredit="${esc(v.id)}">Wijzig</button><button class="btn small danger" type="button" data-vrdel="${esc(v.id)}" aria-label="Vracht verwijderen">×</button></div>` : ''}
+      </div>`; }).join('') : `<div class="empty" style="padding:12px;font-size:12.5px"><b>Nog geen vrachten voor week ${wk}</b>${mk ? 'Typ ze hierboven en klik op “Inlezen en controleren”.' : ''}</div>`}</div>
+    <details${af.length?' open':''}><summary>Afspraken deze week (${af.length})</summary>
+      ${af.length ? `<ul>${af.map((a,i)=>`<li>${esc(a)}${mk?` <button class="x" type="button" data-afdel="${i}" aria-label="Afspraak verwijderen">×</button>`:''}</li>`).join('')}</ul>` : '<p class="hint" style="margin:6px 0 0">Geen. Zinnen zonder vracht die je hierboven intypt, komen hier terecht.</p>'}</details>
+    <details open><summary>Wagens deze week (${wa.length})</summary><ul>
+      <li><b>Met kraan (${kr.length})</b>: ${esc(kr.map(w=>w.kenteken).join(', ') || '—')}</li>
+      <li><b>Trailer, geen kraan (${tr.length})</b>: ${esc(tr.map(w=>w.kenteken).join(', ') || '—')}</li>
+      ${onb.length ? `<li style="color:var(--warn)"><b>Nog niet aangegeven (${onb.length})</b>: ${esc(onb.map(w=>w.kenteken).join(', '))}</li>` : ''}
+    </ul></details>
+    ${afw ? `<details><summary>Afwezig</summary><ul>${afw}</ul></details>` : ''}`;
+  if (mk && $('#vr-tekst')){ $('#vr-tekst').value = oudeTekst; if (hadFocus) $('#vr-tekst').focus(); }
+}
+let vrDelBevestig = null;
+$('#p-vr').addEventListener('click', async e => {
+  const t = e.target; if (!magMaken()) return;
+  if (t.id==='vr-lees'){ const tekst = $('#vr-tekst').value.trim(); if (!tekst) return toast('Typ eerst de vrachten.');
+    const r = vrParse(tekst); vrOpen(r.vrachten, r.afspraken); return; }
+  if (t.id==='vr-los'){ vrOpen([{aantal:1, soort:'hout', lading:'', van:'', naar:'', dag:'', wagen:'', opm:'', zeker:'laag', twijfel:['vul laad- en losplaats in'], mee:true}], []); return; }
+  if (t.dataset.vredit){ const v = PL.vrachten[t.dataset.vredit]; if (!v) return; vrOpen([Object.assign({}, v, {mee:true, twijfel:[], zeker:'hoog'})], [], t.dataset.vredit); return; }
+  if (t.dataset.vrdel){ const id = t.dataset.vrdel;
+    if (vrDelBevestig !== id){ vrDelBevestig = id; t.textContent = 'Zeker?'; setTimeout(()=>{ if (vrDelBevestig===id){ vrDelBevestig = null; renderVrachten(); } }, 3500); return; }
+    vrDelBevestig = null; try{ await Store.del('beheer/planning/vrachten/' + id); toast('Vracht verwijderd; ingeplande ritten blijven staan'); }catch(err){ toast(errMsg(err)); } return; }
+  if (t.dataset.afdel != null){ const wid = vrWeek(); const af = afsprakenWeek(wid).filter((_,i)=>i!==Number(t.dataset.afdel));
+    try{ await Store.set('beheer/planning/weken/' + wid, {afspraken: af}); }catch(err){ toast(errMsg(err)); } }
+});
+
 /* ---- vaste ritten klaarzetten voor de getoonde week ---- */
 $('#p-vast').onclick = async () => {
   if (!magMaken()) return; const btn = $('#p-vast'); const actief = Object.entries(PL.vast).filter(([,v])=>v.actief!==false);
@@ -2677,9 +2907,16 @@ function vsContext(){
     kraan: LADING.filter(l=>PL.inst.kraanNodig[l]).join(', ') || 'geen',
     derden: (PL.inst.derden||[]).map(d=>`- ${d.naam}${d.tarief?` (± € ${d.tarief} per rit)`:''}`).join('\n') || '- geen derden vastgelegd' };
 }
-function vsPrompt(werk){
-  const c = vsContext();
+function vsVracht(){ // vrachten van deze week met korte referenties v1, v2, …
+  const vr = vrachtenWeek(); const tel = vrStand();
+  return vr.map((v,i)=>Object.assign({}, v, { ref: 'v'+(i+1), gepland: Math.min(tel[v.id]||0, Number(v.aantal)||0) })); }
+function vsPrompt(){
+  const c = vsContext(), vr = vsVracht(), af = afsprakenWeek();
+  const open = vr.filter(v=>v.aantal - v.gepland > 0);
+  const vrTekst = open.map(v=>`- ${v.ref}: ${v.aantal - v.gepland}× ${v.soort || v.lading || 'vracht'}${v.lading?` (ladingtype ${v.lading})`:''}, laden in ${v.van} → lossen in ${v.naar}${v.dag?`; op ${DAGNAAM[v.dag]}`:''}${v.wagen?`; met wagen ${waKent(v.wagen)}`:''}${v.opm?`; ${v.opm}`:''}${v.gepland?` (${v.gepland} al ingepland)`:''}`).join('\n');
+  const qa = (VS && VS.qa || []).map(x=>`- Vraag: ${x.vraag}\n  Antwoord van de planner: ${x.antwoord}`).join('\n');
   return `Je bent de planner van Havas Houttransport (Elspeet), een houttransportbedrijf. Maak een planningsvoorstel voor week ${isoWeek(pWeek).week}: ${c.keys.map(k=>fmtDag(parseYmd(k))+' = '+k).join(', ')}. Geen zondag.
+Je werkt samen met de menselijke planner. Wees eerlijk over wat wel en niet past: liever een duidelijke terugkoppeling dan een voorstel dat er goed uitziet maar niet klopt.
 
 WAGENS
 ${c.wag}
@@ -2695,86 +2932,185 @@ ${c.derden}
 AL INGEPLAND DEZE WEEK (niet opnieuw plannen, wel rekening mee houden)
 ${c.bestaand || '- niets'}
 
-WERK DAT GEPLAND MOET WORDEN (van de planner)
-${werk}
+VRACHTEN DIE NOG GEPLAND MOETEN WORDEN (elke vracht = één wagenlading; verwijs met "vracht" naar de ref)
+${vrTekst || '- geen vrachtenlijst; gebruik de vrije tekst hieronder'}
 
+AFSPRAKEN EN RANDVOORWAARDEN VAN DE PLANNER (gelden als harde regels, tenzij er "liefst" of "zo min mogelijk" staat)
+${af.map(a=>'- '+a).join('\n') || '- geen'}
+${VS && VS.extra ? `\nEXTRA UITLEG VAN DE PLANNER\n${VS.extra}\n` : ''}${qa ? `\nEERDER GESTELDE VRAGEN EN ANTWOORDEN (verwerk deze antwoorden)\n${qa}\n` : ''}
 HARDE REGELS
 1. Een wagen en een chauffeur kunnen niet twee ritten tegelijk doen (ook niet met al ingeplande ritten).
 2. Alleen wagens die geschikt zijn voor de lading.
-3. Lading die een kraan vraagt: de wagen heeft zelf een autolaadkraan, óf rijdt samen met een kraanwagen die dezelfde dag op hetzelfde laadadres laadt. Plan dan ook de rit van de kraanwagen en verwijs met "mee_met" naar de ref van die rit.
+3. Lading die een kraan vraagt: de wagen heeft zelf een autolaadkraan, óf rijdt samen met een kraanwagen die dezelfde dag op hetzelfde laadadres laadt. Plan dan ook de rit van de kraanwagen en verwijs met "mee_met" naar de ref van die rit. Een kraanwagen neemt zelf ook een vracht mee.
 4. Een chauffeur die vrij, ziek, met vakantie of op opleiding is, krijgt die dag geen rit. Bij "moet thuis slapen": geen overnachting na die dag.
-5. Een dienst duurt niet langer dan 13 uur.
-VOORKEUREN
+5. Een dienst duurt niet langer dan 13 uur; reken reistijd tussen plaatsen mee (schat afstanden over de weg; gebruik de snelheid uit de afspraken, anders 70 km/u).
+WERKWIJZE
+- Elke rit = één wagen met één vracht van laadplaats naar losplaats. Lege verplaatsingen zijn geen rit; noem ze in "toelichting".
 - Eerst de eigen vloot; derden alleen als de eigen vloot het niet aankan of als de planner dat vraagt.
 - Een chauffeur zo veel mogelijk op zijn vaste wagen.
-- Verdeel het werk eerlijk; houd rekening met contracturen.
-- Verzin geen adressen, hoeveelheden of tijden die niet uit het werk volgen; schat alleen tijden als ze ontbreken en zeg dat in "toelichting".
-Werk dat niet past onder deze regels zet je in "niet_gepland" met de reden.
+- Past niet alles: plan wat wel past, zet de rest per vracht-ref met het aantal en de reden in "niet_gepland", en leg in "knelpunten" uit waar het op vastloopt (bijv. te veel vrachten voor de capaciteit, lostijden, rijtijd, kraanwagens).
+- Mis je informatie die de planning wezenlijk verandert (bijv. openingstijden, afstanden, welke wagen een kraan heeft, wie welke wagen rijdt)? Stel dan een korte vraag in "vragen", plan intussen met een redelijke aanname en noem die in "aannames".
+- Verzin geen adressen of hoeveelheden.
+- Tel na afloop zelf na: per vracht-ref moet (aantal ritten met die ref) + (aantal in niet_gepland) gelijk zijn aan het gevraagde aantal.
 
 Antwoord met alleen JSON in deze vorm:
-{"ritten":[{"ref":"r1","datum":"YYYY-MM-DD","uitvoerder":"eigen"|"<naam derde>","wagen":"<kenteken>"|null,"chauffeur":"<naam>"|null,"start":"HH:MM","eind":"HH:MM","laad":"","los":"","lading":"${LADING.join('|')}","hoeveelheid":null,"eenheid":"m³|ton|stuks","overnachting":false,"mee_met":"r2"|null,"toelichting":""}],"niet_gepland":[{"werk":"","reden":""}],"algemeen":"korte samenvatting van de keuzes"}`;
+{"haalbaar":"ja"|"deels"|"nee","samenvatting":"2-3 zinnen voor de planner","aanpak":["korte stap: hoe je het hebt aangepakt"],"aannames":["..."],"knelpunten":[{"ernst":"hoog"|"middel","tekst":"..."}],"vragen":[{"vraag":"...","waarom":"wat het antwoord verandert"}],
+"ritten":[{"ref":"r1","vracht":"v1"|null,"datum":"YYYY-MM-DD","uitvoerder":"eigen"|"<naam derde>","wagen":"<kenteken>"|null,"chauffeur":"<naam>"|null,"start":"HH:MM","eind":"HH:MM","laad":"","los":"","lading":"${LADING.join('|')}","hoeveelheid":null,"eenheid":"m³|ton|stuks","overnachting":false,"mee_met":"r2"|null,"zekerheid":"hoog"|"middel"|"laag","toelichting":""}],
+"niet_gepland":[{"vracht":"v3"|null,"aantal":1,"reden":"..."}]}`;
+}
+function vsVoorcontrole(){
+  const vr = vsVracht(), af = afsprakenWeek(); const wa = wagens(); const out = [];
+  const totaal = vr.reduce((t,v)=>t+(Number(v.aantal)||0),0), open = vr.reduce((t,v)=>t+(v.aantal - v.gepland),0);
+  out.push(vr.length ? ['ok', `${totaal} vracht${totaal===1?'':'en'} in de lijst (${vr.length} regel${vr.length===1?'':'s'}), waarvan ${open} nog te plannen`] : ['warn', 'Geen vrachten in de vrachtenlijst. Typ ze rechts bij “Vrachten”, of beschrijf het werk hieronder.']);
+  const kr = wa.filter(w=>(VL.wagen[w.id]||{}).kraan===true).length, tr = wa.filter(w=>(VL.wagen[w.id]||{}).kraan===false).length, onb = wa.filter(w=>(VL.wagen[w.id]||{}).kraan==null);
+  out.push(onb.length ? ['warn', `${wa.length} wagens: ${kr} met kraan, ${tr} trailer; bij ${onb.map(w=>w.kenteken).join(', ')} is niet aangegeven of er een kraan op zit (knop onder het kenteken)`] : ['ok', `${wa.length} wagens: ${kr} met kraan, ${tr} trailer`]);
+  out.push(af.length ? ['ok', `${af.length} afspra${af.length===1?'ak':'ken'} voor deze week`] : ['info', 'Geen afspraken voor deze week (lostijden, maxima, rijtijden …). Typ ze bij de vrachten als ze er zijn.']);
+  const keys = [...Array(6)].map((_,i)=>ymd(addDays(pWeek,i))); const afw = chauffeurs().filter(c=>keys.some(k=>beschikOp(c.id,k).length)).length;
+  out.push(['ok', `${chauffeurs().length} chauffeurs${afw?`, ${afw} met afwezigheid of beperking deze week`:''}`]);
+  const al = Object.values(S.ritten).filter(r=>r.datum>=keys[0] && r.datum<=ymd(addDays(pWeek,6))).length;
+  if (al) out.push(['ok', `${al} rit${al===1?'':'ten'} staan al in het rooster; daar wordt omheen gepland`]);
+  if (!open && vr.length) out.push(['warn', 'Alle vrachten in de lijst zijn al ingepland.']);
+  return { out, open, vr };
 }
 function vsInvoer(){
   $('#vs-title').textContent = `Planningsvoorstel week ${isoWeek(pWeek).week}`;
-  $('#vs-body').innerHTML = `<p class="lead" style="margin:0">Beschrijf het werk voor deze week zoals je het een planner zou vertellen. Claude houdt rekening met de planregels (wagens, kraan, beschikbaarheid, vaste ritten die al klaarstaan, derden). Je krijgt eerst een voorstel om te controleren; er wordt niets ingepland zonder je Akkoord.</p>
-    <label>Werk voor week ${isoWeek(pWeek).week}<textarea id="vs-werk" style="min-height:180px" placeholder="Bijv.&#10;ma t/m wo: 6 vrachten rondhout van bosperceel Uddel naar zagerij Van Dijk Nijkerk (± 40 m³ per vracht)&#10;di: 2 vrachten biomassa van Elspeet naar centrale Lelystad&#10;do: stamhout Hulshorst naar Duitsland (overnachting nodig)&#10;Jan Vos liefst op de Duitsland-rit; Jansen mag een vracht biomassa rijden"></textarea></label>
+  const vc = vsVoorcontrole();
+  $('#vs-body').innerHTML = `<p class="lead" style="margin:0">Claude maakt een voorstel op basis van de vrachtenlijst, de afspraken en de planregels. Je ziet daarna wat wel en niet past, welke aannames er zijn gedaan en welke vragen Claude heeft. Er wordt niets ingepland zonder je Akkoord.</p>
+    <div class="vs-blok"><h3>Dit gaat mee</h3><ul style="list-style:none;padding:0">${vc.out.map(([l,t])=>`<li><span class="chip ${l==='ok'?'ok':l==='warn'?'warn':''}" style="margin-right:6px">${l==='ok'?'✓':l==='warn'?'!':'i'}</span>${esc(t)}</li>`).join('')}</ul></div>
+    <label>Extra uitleg of wensen (mag leeg)<textarea id="vs-werk" style="min-height:${vc.vr.length?90:180}px" placeholder="${vc.vr.length ? 'Bijv. Jan Vos liefst op de Duitsland-rit; derden alleen als het echt niet anders kan.' : 'Beschrijf het werk voor deze week zoals je het een planner zou vertellen.'}">${esc(VS && VS.extra || '')}</textarea></label>
     ${Object.values(PL.vast).some(v=>v.actief!==false) ? '<p class="hint" style="margin:0">Tip: zet eerst de vaste ritten klaar, dan plant Claude daaromheen.</p>' : ''}`;
   $('#vs-acties').innerHTML = `<button class="btn primary" type="button" id="vs-maak">Maak voorstel</button>`;
 }
-$('#p-ai').onclick = () => { if (!magMaken()) return; if (!S.sample) return toast('Claude is in deze weergave niet beschikbaar.'); if (VS){ $('#vs-dlg').showModal(); return vsToon(); } vsInvoer(); $('#vs-dlg').showModal(); };
+$('#p-ai').onclick = () => { if (!magMaken()) return; if (!S.sample) return toast('Claude is in deze weergave niet beschikbaar.'); if (VS && VS.rijen){ $('#vs-dlg').showModal(); return vsToon(); } VS = null; vsInvoer(); $('#vs-dlg').showModal(); };
 function vsNorm(r){ r = r||{}; const w = r.wagen ? S.stam.wagens.find(x=>norm(x.kenteken)===norm(r.wagen)) : null;
   const c = r.chauffeur ? S.stam.chauffeurs.find(x=>norm(x.naam)===norm(r.chauffeur)) || S.stam.chauffeurs.find(x=>norm(x.naam).startsWith(norm(String(r.chauffeur).split(' ')[0]))) : null;
   const uitvNaam = r.uitvoerder && norm(r.uitvoerder)!=='eigen' ? String(r.uitvoerder) : ''; const d = uitvNaam ? (PL.inst.derden||[]).find(x=>norm(x.naam)===norm(uitvNaam)) : null;
-  const hv = getal(r.hoeveelheid);
-  return { ref:String(r.ref||''), datum: (xlDatum(r.datum) ? ymd(xlDatum(r.datum)) : ''), uitv: d ? d.id : (uitvNaam ? '__nieuw:'+uitvNaam : ''), derdeNaam: d ? d.naam : uitvNaam,
+  const hv = getal(r.hoeveelheid); const zk = String(r.zekerheid||'').toLowerCase();
+  return { ref:String(r.ref||''), vracht: r.vracht ? String(r.vracht) : '', datum: (xlDatum(r.datum) ? ymd(xlDatum(r.datum)) : ''), uitv: d ? d.id : (uitvNaam ? '__nieuw:'+uitvNaam : ''), derdeNaam: d ? d.naam : uitvNaam,
     wagen: w ? w.id : '', chauffeur: c ? c.id : '', start: xlTijd(r.start)||'', eind: xlTijd(r.eind)||'', laad:String(r.laad||''), los:String(r.los||''),
     lading: LADING.includes(r.lading) ? r.lading : 'Overig', hv: Number.isFinite(hv)?hv:null, eh: ['m³','ton','stuks'].includes(r.eenheid)?r.eenheid:'m³', overnachting: r.overnachting===true,
-    meeRef: r.mee_met ? String(r.mee_met) : '', toelichting: String(r.toelichting||''), onbekend: [r.wagen && !w ? 'wagen '+r.wagen : '', r.chauffeur && !c ? 'chauffeur '+r.chauffeur : ''].filter(Boolean), mee:true }; }
+    meeRef: r.mee_met ? String(r.mee_met) : '', toelichting: String(r.toelichting||''), zeker: zk.startsWith('h') ? 'hoog' : zk.startsWith('l') ? 'laag' : zk.startsWith('m') ? 'middel' : 'middel',
+    onbekend: [r.wagen && !w ? 'wagen '+r.wagen : '', r.chauffeur && !c ? 'chauffeur '+r.chauffeur : ''].filter(Boolean), mee:true }; }
+const lijstVan = (x, f) => Array.isArray(x) ? x.map(f).filter(Boolean) : [];
+async function vsMaak(){
+  const extra = ($('#vs-werk') ? $('#vs-werk').value : (VS && VS.extra) || '').trim();
+  const vc = vsVoorcontrole();
+  if (!vc.open && extra.length < 10) return toast('Er is niets te plannen: voeg vrachten toe of beschrijf het werk.');
+  const qa = VS && VS.qa || [];
+  VS = { extra, qa, bezig: true, refs: Object.fromEntries(vsVracht().map(v=>[v.ref, v])) };
+  const t0 = Date.now(); let ritten = 0, tekens = 0;
+  const stap = (k, l, t) => `<li class="${k}">${t}</li>`;
+  const teken = () => { $('#vs-body').innerHTML = `<ol class="vs-stappen">
+      ${stap('ok','', `Gegevens verzameld: ${vc.out.filter(x=>x[0]!=='info').map(x=>esc(x[1])).join(' · ')}`)}
+      ${qa.length ? stap('ok','', `${qa.length} antwoord${qa.length===1?'':'en'} op eerdere vragen meegegeven`) : ''}
+      ${stap('bezig','', `Claude plant… <b id="vs-teller">${ritten} ritten opgesteld</b> <small style="color:var(--muted)" id="vs-tijd">${Math.round((Date.now()-t0)/1000)} s</small>`)}
+      ${stap('wacht','', 'Controle: elke vracht geteld en elke rit langs de planregels')}
+    </ol><p class="hint" style="margin:0">Dit kan één tot enkele minuten duren bij veel vrachten. Je kunt dit venster openlaten.</p>`; };
+  teken(); $('#vs-acties').innerHTML = `<button class="btn" type="button" id="vs-stop">Stoppen</button>`;
+  const klok = setInterval(()=>{ const el = $('#vs-tijd'); if (el) el.textContent = Math.round((Date.now()-t0)/1000) + ' s'; }, 1000);
+  vsCtl = new AbortController();
+  try{
+    const res = await S.sample.json(vsPrompt(), { modelTier:'complex', signal: vsCtl.signal, cache:false, onText: ({text}) => {
+      tekens = text.length; const n = (text.match(/"ref"\s*:/g)||[]).length; if (n !== ritten){ ritten = n; const el = $('#vs-teller'); if (el) el.textContent = `${n} ritten opgesteld`; } } });
+    const r = res || {};
+    Object.assign(VS, { bezig:false,
+      haalbaar: ['ja','deels','nee'].includes(String(r.haalbaar).toLowerCase()) ? String(r.haalbaar).toLowerCase() : '',
+      samenvatting: String(r.samenvatting || r.algemeen || ''),
+      aanpak: lijstVan(r.aanpak, x=>String(x||'').trim()), aannames: lijstVan(r.aannames, x=>String(x||'').trim()),
+      knelpunten: lijstVan(r.knelpunten, x=> typeof x==='string' ? {ernst:'middel', tekst:x} : (x && x.tekst ? {ernst: String(x.ernst).startsWith('h') ? 'hoog' : 'middel', tekst:String(x.tekst)} : null)),
+      vragen: lijstVan(r.vragen, x=> typeof x==='string' ? {vraag:x, waarom:'', antwoord:''} : (x && x.vraag ? {vraag:String(x.vraag), waarom:String(x.waarom||''), antwoord:''} : null)),
+      niet: lijstVan(r.niet_gepland, x=> x ? {vracht: x.vracht ? String(x.vracht) : '', aantal: Math.max(0, Math.round(Number(x.aantal)||1)), reden: String(x.reden||''), werk: String(x.werk||'')} : null),
+      rijen: lijstVan(r.ritten, vsNorm) });
+    vsToon();
+  }catch(err){
+    const c = err && err.code; VS.bezig = false;
+    const uitleg = c==='cancelled' ? 'Gestopt. Er is niets ingepland.' : c==='not_granted' ? 'Toestemming om Claude te gebruiken is geweigerd.' : c==='rate_limited' ? 'Even te veel verzoeken, of je gebruikslimiet is bereikt. Probeer het later opnieuw.'
+      : c==='invalid_json' ? 'Claude gaf geen bruikbaar antwoord' + (tekens > 20000 ? ': het voorstel werd te lang. Plan in delen (bijv. eerst de vrachten naar één losplaats) of haal vrachten tijdelijk uit de lijst.' : '. Probeer het opnieuw, eventueel met wat meer uitleg.')
+      : 'Het voorstel is mislukt (' + (err && err.message || 'onbekende fout') + '). Probeer het opnieuw.';
+    $('#vs-body').innerHTML = `<ol class="vs-stappen"><li class="ok">Gegevens verzameld</li><li class="fout">${esc(uitleg)}</li></ol>`;
+    $('#vs-acties').innerHTML = `<button class="btn primary" type="button" id="vs-opnieuw">Terug</button>`;
+  }finally{ clearInterval(klok); vsCtl = null; }
+}
 $('#vs-acties').addEventListener('click', async e => {
-  if (e.target.id==='vs-maak'){
-    const werk = ($('#vs-werk').value||'').trim(); if (werk.length < 10) return toast('Beschrijf eerst het werk voor deze week.');
-    const btn = e.target; btn.disabled = true; btn.textContent = 'Claude plant… (kan een minuut duren)'; vsCtl = new AbortController();
-    try{ const res = await S.sample.json(vsPrompt(werk), { modelTier:'complex', signal: vsCtl.signal, cache:false });
-      VS = { werk, algemeen:String((res&&res.algemeen)||''), niet:Array.isArray(res&&res.niet_gepland)?res.niet_gepland:[], rijen:(Array.isArray(res&&res.ritten)?res.ritten:[]).map(vsNorm) }; vsToon();
-    }catch(err){ const c = err && err.code; if (c!=='cancelled') toast(c==='not_granted' ? 'Toestemming om Claude te gebruiken is geweigerd.' : c==='rate_limited' ? 'Even te veel verzoeken of je limiet is bereikt. Probeer het later opnieuw.' : c==='invalid_json' ? 'Claude gaf geen bruikbaar voorstel. Probeer het opnieuw of beschrijf het werk iets anders.' : 'Het voorstel is mislukt. Probeer het opnieuw.');
-      btn.disabled = false; btn.textContent = 'Maak voorstel'; }
-    finally{ vsCtl = null; }
-  }
-  if (e.target.id==='vs-opnieuw'){ VS = null; vsInvoer(); }
+  if (e.target.id==='vs-maak') vsMaak();
+  if (e.target.id==='vs-stop' && vsCtl) vsCtl.abort();
+  if (e.target.id==='vs-opnieuw'){ const extra = VS && VS.extra || ''; VS = {extra, qa: VS && VS.qa || []}; vsInvoer(); }
   if (e.target.id==='vs-ok') vsAkkoord();
+  if (e.target.id==='vs-antwoord') vsAntwoord();
 });
+function vsAntwoord(){
+  if (!VS) return; const open = (VS.vragen||[]).filter(v=>v.antwoord && v.antwoord.trim());
+  if (!open.length) return toast('Vul eerst minstens één antwoord in.');
+  VS.qa = [...(VS.qa||[]), ...open.map(v=>({vraag:v.vraag, antwoord:v.antwoord.trim()}))]; vsMaak(); }
 function vsAlsRitten(){ // proposal + bestaande ritten → map voor planCheck
   const map = Object.assign({}, S.ritten); const refId = {}; VS.rijen.forEach((r,i)=>{ refId[r.ref||('i'+i)] = '__vs'+i; });
   VS.rijen.forEach((r,i)=>{ if (!r.mee) return; map['__vs'+i] = { datum:r.datum, status:'gepland', uitv: r.uitv, derdeNaam:r.derdeNaam, wagen:r.uitv?'':r.wagen, chauffeur:r.uitv?'':r.chauffeur, start:r.start, eind:r.eind, laad:r.laad, los:r.los, lading:r.lading, hv:r.hv, eh:r.eh, overnachting:r.overnachting, meeMet: r.meeRef && refId[r.meeRef] ? refId[r.meeRef] : null }; });
   return map; }
+function vsDekking(){ // per vracht: gevraagd, in voorstel, niet gepland — zelf geteld, niet op Claude vertrouwd
+  const refs = VS.refs || {}; const rows = Object.values(refs).filter(v=>v.aantal - v.gepland > 0).map(v=>{
+    const voorstel = VS.rijen.filter(r=>r.mee && r.vracht===v.ref).length; const niet = VS.niet.filter(n=>n.vracht===v.ref).reduce((t,n)=>t+n.aantal,0);
+    const gevraagd = v.aantal - v.gepland; return { v, gevraagd, voorstel, niet, rest: gevraagd - voorstel - niet }; });
+  const zonder = VS.rijen.filter(r=>r.mee && (!r.vracht || !refs[r.vracht])).length;
+  return { rows, zonder, gevraagd: rows.reduce((t,r)=>t+r.gevraagd,0), voorstel: rows.reduce((t,r)=>t+Math.min(r.voorstel, r.gevraagd),0), niet: rows.reduce((t,r)=>t+r.niet,0) };
+}
 function vsToon(){
-  if (!VS) return; const map = vsAlsRitten(); const chk = planCheck(map);
+  if (!VS || !VS.rijen) return; const map = vsAlsRitten(); const chk = planCheck(map);
   const wsel = sel => '<option value="">—</option>' + wagens().map(w=>`<option value="${esc(w.id)}"${w.id===sel?' selected':''}>${esc(w.kenteken)}</option>`).join('');
   const csel = sel => '<option value="">—</option>' + chauffeurs().map(c=>`<option value="${esc(c.id)}"${c.id===sel?' selected':''}>${esc(c.naam)}</option>`).join('');
   const usel = r => `<option value="">Eigen vloot</option>` + (PL.inst.derden||[]).map(d=>`<option value="${esc(d.id)}"${d.id===r.uitv?' selected':''}>${esc(d.naam)}</option>`).join('') + (String(r.uitv).startsWith('__nieuw:') ? `<option value="${esc(r.uitv)}" selected>${esc(r.derdeNaam)} (nieuw)</option>` : '');
+  const vrsel = r => '<option value="">—</option>' + Object.values(VS.refs||{}).map(v=>`<option value="${esc(v.ref)}"${v.ref===r.vracht?' selected':''}>${esc(v.ref)}: ${esc(v.van)} → ${esc(v.naar)}</option>`).join('');
   const fouten = VS.rijen.filter((r,i)=>r.mee && (chk.get('__vs'+i)||[]).some(x=>x[0]==='bad')).length;
+  const dk = vsDekking();
+  // eigen oordeel naast dat van Claude
+  const telFout = dk.rows.filter(r=>r.rest !== 0);
+  const oordeel = !VS.rijen.length ? 'nee' : (fouten || dk.niet || telFout.length) ? (VS.haalbaar==='nee' ? 'nee' : 'deels') : (VS.haalbaar || 'ja');
+  const knel = [...VS.knelpunten];
+  if (fouten) knel.unshift({ernst:'hoog', tekst:`${fouten} rit${fouten===1?'':'ten'} overtreden een planregel (rood in de tabel). Pas ze aan of vink ze uit.`});
+  const tekort = telFout.filter(r=>r.rest>0), teveel = telFout.filter(r=>r.rest<0);
+  if (tekort.length > 3){ const n = tekort.reduce((t,r)=>t+r.rest,0);
+    knel.push({ernst:'hoog', tekst:`${n} vrachten zijn niet ingepland en ook niet als “niet gepland” genoemd (${tekort.map(r=>`${r.v.ref} ${r.v.van} → ${r.v.naar}: ${r.rest}`).join('; ')}). Claude heeft deze vrachten overgeslagen; vraag eventueel opnieuw of plan ze zelf.`}); }
+  else tekort.forEach(r=>knel.push({ernst:'hoog', tekst:`${r.v.ref} (${r.v.van} → ${r.v.naar}): ${r.rest} vracht${r.rest===1?'':'en'} niet ingepland en ook niet als “niet gepland” genoemd.`}));
+  teveel.forEach(r=>knel.push({ernst:'hoog', tekst:`${r.v.ref} (${r.v.van} → ${r.v.naar}): ${-r.rest} rit${-r.rest===1?'':'ten'} meer dan gevraagd.`}));
+  if (dk.zonder) knel.push({ernst:'middel', tekst:`${dk.zonder} rit${dk.zonder===1?' is':'ten zijn'} niet aan een vracht gekoppeld (kolom Vracht).`});
   const rij = (r,i) => { const m = r.mee ? (chk.get('__vs'+i)||[]) : []; const bad = m.some(x=>x[0]==='bad'); const meeIdx = VS.rijen.findIndex(x=>x.ref && x.ref===r.meeRef);
-    return `<tr data-i="${i}" class="${!r.mee?'zk-leeg':bad?'zk-laag':m.length?'zk-middel':'zk-hoog'}${bad?' heeft-fout':''}">
+    const kl = !r.mee ? 'zk-leeg' : bad ? 'zk-laag' : (m.length || r.zeker!=='hoog') ? (r.zeker==='laag' ? 'zk-laag' : 'zk-middel') : 'zk-hoog';
+    return `<tr data-i="${i}" class="${kl}${bad?' heeft-fout':''}">
     <td><input type="checkbox" data-f="mee"${r.mee?' checked':''} style="width:auto;height:auto"></td>
+    <td><select data-f="vracht" style="width:7em">${vrsel(r)}</select></td>
     <td><input type="date" data-f="datum" value="${esc(r.datum)}"></td>
     <td><select data-f="uitv">${usel(r)}</select></td>
     <td><select data-f="wagen"${r.uitv?' disabled':''}>${wsel(r.wagen)}</select></td><td><select data-f="chauffeur"${r.uitv?' disabled':''}>${csel(r.chauffeur)}</select></td>
     <td><input type="time" data-f="start" value="${esc(r.start)}"></td><td><input type="time" data-f="eind" value="${esc(r.eind)}"></td>
-    <td><input data-f="laad" value="${esc(r.laad)}" style="width:10em"></td><td><input data-f="los" value="${esc(r.los)}" style="width:10em"></td>
+    <td><input data-f="laad" value="${esc(r.laad)}" style="width:9em"></td><td><input data-f="los" value="${esc(r.los)}" style="width:9em"></td>
     <td><select data-f="lading">${LADING.map(l=>`<option${l===r.lading?' selected':''}>${esc(l)}</option>`).join('')}</select></td>
     <td><select data-f="overnachting"><option value="nee"${r.overnachting?'':' selected'}>nee</option><option value="ja"${r.overnachting?' selected':''}>ja</option></select></td>
     <td>${meeIdx>=0 ? `⛓ ${esc(VS.rijen[meeIdx].ref)}` : ''}</td>
     <td style="min-width:16em"><b style="font-size:11px">${esc(r.ref)}</b> ${r.toelichting?`<small style="color:var(--muted)">${esc(r.toelichting)}</small>`:''}${r.onbekend.length?`<small style="color:var(--warn)">onbekend: ${esc(r.onbekend.join(', '))}</small>`:''}${m.map(([l,t])=>`<small style="color:var(--${l==='bad'?'bad':'warn'})">${esc(t)}</small>`).join('')}</td></tr>`; };
+  const woord = {ja:'Past', deels:'Past deels', nee:'Past niet'}[oordeel];
   $('#vs-body').innerHTML = `
-    ${VS.algemeen?`<div class="msg" style="background:var(--sunk)">${esc(VS.algemeen)}</div>`:''}
-    <p style="margin:0">${VS.rijen.length} rit${VS.rijen.length===1?'':'ten'} voorgesteld${fouten?`, waarvan <b>${fouten} met een overtreden regel</b> (rood)`:''}. Pas aan waar nodig; ritten zonder vinkje worden niet ingepland. Na Akkoord kun je alles nog wijzigen in de stand Wijzigen.</p>
-    ${VS.niet.length?`<div class="msg warn"><b>Niet gepland:</b> ${VS.niet.map(n=>esc((n.werk||'')+(n.reden?' — '+n.reden:''))).join(' · ')}</div>`:''}
-    <div class="scroll"><table class="staat ocr" style="min-width:1250px"><thead><tr><th>Mee</th><th>Datum</th><th>Uitvoerder</th><th>Wagen</th><th>Chauffeur</th><th>Vertrek</th><th>Klaar</th><th>Laadadres</th><th>Losadres</th><th>Lading</th><th>Overn.</th><th>Samen</th><th>Toelichting / regels</th></tr></thead><tbody>${VS.rijen.map(rij).join('')}</tbody></table></div>`;
+    <div class="vs-oordeel ${oordeel}"><b class="groot">${woord}</b>
+      <span>${dk.rows.length ? `${dk.voorstel} van ${dk.gevraagd} vracht${dk.gevraagd===1?'':'en'} ingepland${dk.niet?`, ${dk.niet} niet`:''}` : `${VS.rijen.length} rit${VS.rijen.length===1?'':'ten'} voorgesteld`}${fouten?` · <b>${fouten} met overtreden regel</b>`:''}</span>
+      ${VS.haalbaar && VS.haalbaar!==oordeel ? `<small style="color:var(--muted)">(Claude zei: ${esc(VS.haalbaar)}; de controle hierboven telt zelf na)</small>` : ''}</div>
+    ${VS.samenvatting ? `<div class="msg" style="background:var(--sunk);font-size:13px">${esc(VS.samenvatting)}</div>` : ''}
+    ${knel.length ? `<div class="vs-blok"><h3>Waar het op vastloopt</h3><div style="display:grid;gap:4px">${knel.map(k=>`<div class="msg ${k.ernst==='hoog'?'bad':'warn'}">${esc(k.tekst)}</div>`).join('')}</div></div>` : ''}
+    ${VS.vragen.length ? `<div class="vs-blok"><h3>Claude heeft informatie nodig</h3><div style="display:grid;gap:6px">${VS.vragen.map((v,i)=>`<label class="vs-vraag"><span><b>${esc(v.vraag)}</b>${v.waarom?` <small>${esc(v.waarom)}</small>`:''}</span><input data-vraag="${i}" value="${esc(v.antwoord||'')}" placeholder="Jouw antwoord"></label>`).join('')}</div>
+      <div style="margin-top:6px"><button class="btn small primary" type="button" id="vs-antwoord-knop">Beantwoord en plan opnieuw</button> <span class="hint">Tot die tijd plant Claude met de aannames hieronder.</span></div></div>` : ''}
+    ${VS.aannames.length ? `<div class="vs-blok"><h3>Aannames</h3><ul>${VS.aannames.map(a=>`<li>${esc(a)}</li>`).join('')}</ul></div>` : ''}
+    ${VS.aanpak.length ? `<details class="vs-blok"><summary><b>Zo heeft Claude het aangepakt</b></summary><ul style="margin-top:6px">${VS.aanpak.map(a=>`<li>${esc(a)}</li>`).join('')}</ul></details>` : ''}
+    ${dk.rows.length ? `<div class="vs-blok"><h3>Per vracht</h3><div class="scroll"><table class="staat" style="font-size:12.5px"><thead><tr><th>Vracht</th><th>Route</th><th class="n">Te plannen</th><th class="n">In voorstel</th><th class="n">Niet gepland</th><th>Reden</th></tr></thead><tbody>
+      ${dk.rows.map(r=>`<tr style="background:var(--${r.rest!==0?'bad-soft':r.niet?'warn-soft':'ok-soft'})"><td><b>${esc(r.v.ref)}</b></td><td>${esc(r.v.van)} → ${esc(r.v.naar)}${r.v.dag?` (${esc(DAGNAAM[r.v.dag])})`:''}</td><td class="n">${r.gevraagd}</td><td class="n">${r.voorstel}</td><td class="n">${r.niet||''}</td><td>${esc(VS.niet.filter(n=>n.vracht===r.v.ref).map(n=>n.reden).filter(Boolean).join('; '))}${r.rest>0?` <span style="color:var(--bad)">${r.rest} nergens genoemd</span>`:''}</td></tr>`).join('')}
+      ${VS.niet.filter(n=>!n.vracht || !VS.refs[n.vracht]).map(n=>`<tr style="background:var(--warn-soft)"><td>—</td><td>${esc(n.werk)}</td><td></td><td></td><td class="n">${n.aantal}</td><td>${esc(n.reden)}</td></tr>`).join('')}
+      </tbody></table></div></div>` : (VS.niet.length ? `<div class="msg warn"><b>Niet gepland:</b> ${VS.niet.map(n=>esc((n.werk||'')+(n.reden?' — '+n.reden:''))).join(' · ')}</div>` : '')}
+    ${VS.rijen.length ? `<div class="vs-blok"><h3>Ritten (${VS.rijen.length})</h3><p class="hint" style="margin:0 0 6px">Groen = zeker, geel = controleren, rood = regel overtreden of onzeker. Pas aan waar nodig; ritten zonder vinkje worden niet ingepland. Na Akkoord kun je alles nog wijzigen in de stand Wijzigen.</p>
+    <div class="scroll"><table class="staat ocr" style="min-width:1320px"><thead><tr><th>Mee</th><th>Vracht</th><th>Datum</th><th>Uitvoerder</th><th>Wagen</th><th>Chauffeur</th><th>Vertrek</th><th>Klaar</th><th>Laadadres</th><th>Losadres</th><th>Lading</th><th>Overn.</th><th>Samen</th><th>Toelichting / regels</th></tr></thead><tbody>${VS.rijen.map(rij).join('')}</tbody></table></div></div>` : ''}`;
   $('#vs-body').style.zoom = ocrZoom/100;
-  $('#vs-acties').innerHTML = `<button class="btn primary" type="button" id="vs-ok">Akkoord, zet in planning</button><button class="btn" type="button" id="vs-opnieuw">Opnieuw beginnen</button>`;
+  $('#vs-acties').innerHTML = `${VS.rijen.length ? `<button class="btn primary" type="button" id="vs-ok">Akkoord, zet in planning</button>` : ''}${VS.vragen.length ? `<button class="btn" type="button" id="vs-antwoord">Beantwoord en plan opnieuw</button>` : ''}<button class="btn" type="button" id="vs-opnieuw">Opnieuw beginnen</button>`;
 }
+$('#vs-body').addEventListener('input', e => { if (!VS || e.target.dataset.vraag == null) return; VS.vragen[Number(e.target.dataset.vraag)].antwoord = e.target.value; });
+$('#vs-body').addEventListener('click', e => { if (e.target.id==='vs-antwoord-knop') vsAntwoord(); });
 $('#vs-body').addEventListener('change', e => { if (!VS) return; const tr = e.target.closest('tr[data-i]'); if (!tr) return; const r = VS.rijen[Number(tr.dataset.i)]; const f = e.target.dataset.f; if (!f) return;
   if (f==='mee') r.mee = e.target.checked; else if (f==='overnachting') r.overnachting = e.target.value==='ja';
+  else if (f==='vracht') r.vracht = e.target.value;
   else if (f==='uitv'){ r.uitv = e.target.value; const d = derdeVan(r.uitv); r.derdeNaam = d ? d.naam : (String(r.uitv).startsWith('__nieuw:') ? r.uitv.slice(8) : ''); } else r[f] = e.target.value;
   vsToon(); });
 async function vsAkkoord(){
@@ -2791,12 +3127,12 @@ async function vsAkkoord(){
     for (const [r,i] of mee){ const id = ids[r.ref||('i'+i)]; const d = derdeVan(r.uitv);
       await Store.set('ritten/'+id, { datum:r.datum, status:'gepland', uitv:r.uitv||'', derdeNaam: r.uitv ? (d?d.naam:r.derdeNaam) : '', tarief: r.uitv && d ? (d.tarief??null) : null,
         wagen: r.uitv?'':r.wagen, chauffeur: r.uitv?'':r.chauffeur, start:r.start, eind:r.eind, laad:r.laad, los:r.los, lading:r.lading, hv:r.hv, eh:r.eh, overnachting:r.overnachting,
-        meeMet: r.meeRef && ids[r.meeRef] ? ids[r.meeRef] : null, vastId:null, bron:'voorstel', opm: r.toelichting ? 'Voorstel: '+r.toelichting : '', bijgewerkt:new Date().toISOString() }); }
+        meeMet: r.meeRef && ids[r.meeRef] ? ids[r.meeRef] : null, vastId:null, vrachtId: r.vracht && VS.refs && VS.refs[r.vracht] ? VS.refs[r.vracht].id : null, bron:'voorstel', opm: r.toelichting ? 'Voorstel: '+r.toelichting : '', bijgewerkt:new Date().toISOString() }); }
     const n = mee.length; VS = null; $('#vs-dlg').close(); document.body.appendChild($('#toast')); renderPlan();
     toast(`${n} rit${n===1?'':'ten'} ingepland. Controleer de meldingen onder het rooster.`);
   }catch(err){ toast(errMsg(err)); } finally{ const b = $('#vs-ok'); if (b){ b.disabled = false; b.textContent = 'Akkoord, zet in planning'; } }
 }
-$('#vs-close').onclick = () => { if (!VS && !vsCtl){ $('#vs-dlg').close(); return; } $('#vs-sluit').hidden = false; };
+$('#vs-close').onclick = () => { if (!(VS && VS.rijen) && !vsCtl){ $('#vs-dlg').close(); return; } $('#vs-sluit').hidden = false; };
 $('#vs-sluit-nee').onclick = () => { $('#vs-sluit').hidden = true; };
 $('#vs-sluit-ja').onclick = () => { if (vsCtl) vsCtl.abort(); VS = null; $('#vs-sluit').hidden = true; $('#vs-dlg').close(); document.body.appendChild($('#toast')); };
 $('#vs-dlg').addEventListener('cancel', e => { e.preventDefault(); $('#vs-close').click(); });
@@ -3203,6 +3539,8 @@ TABBLAD PLANNING
 - Soort wagen: in de stand Maken staat onder elk kenteken een knop "🏗 Kraan" / "Trailer". Kraan = wagen met autolaadkraan; Trailer = vrachtwagen met trailer zonder autolaadkraan. Dit is hetzelfde als het vinkje Autolaadkraan in Planregels en telt mee in de controles (lading die een kraan vraagt) en in het planningsvoorstel. In Inzien/Wijzigen staat het als tekst onder het kenteken.
 - Weekrooster: een rij per wagen (🏗 = autolaadkraan), daaronder rijen per derde partij (charters) en voor beheerders een rij Beschikbaarheid. 🌙 = overnachting, ⛓ = rijdt samen met (kraanwagen), "vast" = vaste rit.
 - Rit maken (stand Maken): klik op een leeg vak of "Nieuwe rit". Velden: datum, status, uitgevoerd door (eigen vloot of een derde, met tarief), wagen, chauffeur, vertrek, klaar, laad- en losadres, lading, hoeveelheid, "Rijdt samen met (kraanwagen)", "Overnachting na deze rit", opmerking. "Tijden naar urenstaat" zet de rittijden in de weekstaat.
+- Vrachten (rechts naast het rooster, beheerders): per week de lijst met vrachten. In de stand Maken typ of plak je de vrachten in gewone zinnen, bijv. "10 vrachten hout van Bawinkel naar Uddel" of "1 vracht hout van Putten naar Enschede door 29-BZN-3 op woensdag". "Inlezen en controleren" toont een controletabel (groen zeker, geel controleren, rood aanvullen) met aantal, omschrijving, lading, laden in, lossen in, dag, wagen en opmerking; zinnen zonder vracht (bijv. "elke dag maximaal 6 vrachten lossen in Uddel") worden bewaard als afspraken van die week. Per vracht zie je "gepland/gevraagd" met een balk: telt ritten die bij de vracht horen (veld "Hoort bij vracht" in de rit) en losse ritten met dezelfde laad- en losplaats. Onder de lijst: afspraken, wagens met/zonder kraan en afwezigheid. Knoppen Wijzig en × per vracht; "+ Vracht" voegt er één los toe.
+- Planningsvoorstel (Claude): gebruikt de vrachtenlijst, de afspraken, de planregels en wat al in het rooster staat. Vooraf "Dit gaat mee" (controle: aantal vrachten, wagens met kraan/trailer, ontbrekende kraan-instelling, afspraken). Tijdens het plannen zie je de stappen en hoeveel ritten al zijn opgesteld (knop Stoppen). Daarna: oordeel Past / Past deels / Past niet (zelf nageteld per vracht), "Waar het op vastloopt" (te veel vrachten, regels, vrachten die nergens genoemd zijn), "Claude heeft informatie nodig" (vragen met invulvak; "Beantwoord en plan opnieuw"), aannames, "Zo heeft Claude het aangepakt", tabel Per vracht (te plannen / in voorstel / niet gepland met reden) en de ritten met kleur. Na Akkoord worden de ritten aan de vracht gekoppeld.
 - Planregels (knop, beheerders) met vier onderdelen: Wagens & lading (per ladingtype of laden een kraan vraagt; per wagen autolaadkraan ja/nee en voor welke lading geschikt), Beschikbaarheid (chauffeur vrij, vakantie, ziek, opleiding, of "moet thuis slapen" van/tot; met "Herhaal elke week" geldt het elke week op dezelfde dag(en) vanaf de begindatum, bijv. elke woensdag thuis slapen), Vaste ritten (terugkerend werk per weekdag), Derden (charters met standaard tarief).
 - Controles: rode rand = regel overtreden (chauffeur of wagen dubbel geboekt, wagen niet geschikt voor de lading, lading vraagt kraan maar wagen heeft er geen en is niet gekoppeld aan een kraanwagen, chauffeur afwezig, overnachting terwijl chauffeur thuis moet slapen). Gele rand = controleren (dienst langer dan 15 uur, laadadres wijkt af van kraanwagen, enz.). Alle meldingen staan onder het rooster; klik erop om de rit te openen.
 - Excel: kies in de keuzelijst naast de weekknoppen "alle ritten", een kenteken, een chauffeur of een derde en klik Excel; je krijgt de ritten van de getoonde week (tabblad Ritten) en een rooster per dag (tabblad Rooster).

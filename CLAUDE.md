@@ -44,6 +44,8 @@ Implements those capabilities on Supabase:
 | `beheer/backup` | backup e-mail and status |
 | `beheer/kostprijs` | cost-price settings |
 | `beheer/planning` | planning rules; sub-collections `beschik`, `vast` |
+| `beheer/planning/vrachten/<id>` | order book per week `{week, aantal, soort, lading, van, naar, dag, wagen, opm, volgorde}`; rides link via `ritten/<id>.vrachtId` |
+| `beheer/planning/weken/<jaar-Wnn>` | `{afspraken[]}`: free-text constraints for that week, sent to the planning proposal |
 | `beheer/vloot/(tank\|onderhoud\|wagens)/<id>` | fuel, maintenance, vehicles |
 
 ## Business rules (do not change without the owner's explicit consent)
