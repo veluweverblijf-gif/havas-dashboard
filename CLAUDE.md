@@ -45,8 +45,19 @@ Implements those capabilities on Supabase:
 | `beheer/kostprijs` | cost-price settings |
 | `beheer/planning` | planning rules; sub-collections `beschik`, `vast` |
 | `beheer/planning/vrachten/<id>` | order book per week `{week, aantal, soort, lading, van, naar, dag, wagen, opm, volgorde}`; rides link via `ritten/<id>.vrachtId` |
-| `beheer/planning/weken/<jaar-Wnn>` | `{afspraken[]}`: free-text constraints for that week, sent to the planning proposal |
+| `beheer/planning/weken/<jaar-Wnn>` | `{afspraken[], regels{…}, regelsVragen[], regelsOnbegrepen[]}`: free-text constraints and the structured rules the planning engine uses |
+| `beheer/planning/plaatsen/<norm naam>` | `{naam, lat, lon, zeker, bron:'claude'|'handmatig'}`: place coordinates for distance estimates |
 | `beheer/vloot/(tank\|onderhoud\|wagens)/<id>` | fuel, maintenance, vehicles |
+
+## Planning engine
+The planningsvoorstel no longer asks Claude to write the whole schedule; that does not scale to 100+ loads.
+- `maakPlanner()` / `planWeek()` (inline in `web/index.html`, copy in `test/planmotor.js`) is a randomized greedy scheduler over kraan+trailer teams.
+- It respects: rijtijd per dienst, dienstduur, rust, vroegste start, laad/los windows per place, max per day per place, wagen appointments (place from–to), fixed day/wagen per load, and being back at the end place.
+- It keeps the best of hundreds of variants: most loads first, then fewest empty km.
+- An independent validator re-checks the winning schedule.
+- Claude is only used to turn free-text afspraken into the `regels` object, and to look up coordinates of places.
+- Distances are haversine × `wegfactor` (default 1.3).
+- Test with `node test/planmotor.test.js`. The user's real scenario must give 53/55; the bound is 30 unloads in Uddel per week.
 
 ## Business rules (do not change without the owner's explicit consent)
 - **CAO Beroepsgoederenvervoer 2026:**

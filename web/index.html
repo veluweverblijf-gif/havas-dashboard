@@ -319,6 +319,20 @@ main.wrap:has(#pane-plan:not([hidden])){max-width:1720px}
 .vs-vraag small{color:var(--muted)}
 .vs-blok h3{margin:0 0 6px;font-size:14px}
 .vs-blok ul{margin:0;padding-left:18px;display:grid;gap:3px;font-size:13px}
+.vs-regels{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.vs-regels label{font-size:12px}
+.vs-regels input,.vs-regels select,.vs-lijst input,.vs-lijst select{padding:4px 6px;font-size:13px}
+.vs-lijst{display:grid;gap:4px;margin-top:4px}
+.vs-lijst .rij{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.vs-lijst .rij input{width:auto;min-width:0}
+.vs-lijst .rij select{width:auto;min-width:0}
+.vs-lijst .rij .x{border:0;background:none;color:var(--bad);cursor:pointer;font-size:15px}
+.vs-sub{font-size:12.5px;font-weight:600;margin:10px 0 2px}
+.vs-balk{height:8px;border-radius:4px;background:var(--sunk);overflow:hidden}
+.vs-balk i{display:block;height:100%;background:var(--accent);transition:width .2s}
+table.vs-pl td,table.vs-pl th{padding:3px 6px;font-size:12.5px}
+table.vs-pl input{padding:2px 5px;font-size:12.5px;width:7em}
+table.vs-pl tr.mist td{background:var(--bad-soft)}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
 /* dialog */
 dialog{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:var(--ink);padding:0;width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 48px)}
@@ -905,6 +919,7 @@ function subscribeGlobal(){
     globalUnsubs.push(Store.subCol('beheer/planning/vast', l=>{ PL.vast = Object.fromEntries(l.map(x=>[x.id,x.data])); renderPlan(); renderPlanregels(); }));
     globalUnsubs.push(Store.subCol('beheer/planning/vrachten', l=>{ PL.vrachten = Object.fromEntries(l.map(x=>[x.id,x.data])); renderPlan(); }));
     globalUnsubs.push(Store.subCol('beheer/planning/weken', l=>{ PL.weken = Object.fromEntries(l.map(x=>[x.id,x.data])); renderPlan(); }));
+    globalUnsubs.push(Store.subCol('beheer/planning/plaatsen', l=>{ PL.plaatsen = Object.fromEntries(l.map(x=>[x.id,x.data])); }));
     globalUnsubs.push(Store.subDoc('beheer/kostprijs', d=>{ VL.kp = Object.assign({opslag:35}, d||{}); renderVloot(); }));
   }
   if (S.role==='beheerder'){
@@ -2367,7 +2382,7 @@ function vulMaanden(sel, standaard){
    Ritten: ritten/<id> {datum,status,uitv('' = eigen vloot, anders derde-id),derdeNaam,tarief,wagen,chauffeur,start,eind,laad,los,lading,hv,eh,overnachting,meeMet,vastId,bron,opm}
    Planregels (alleen beheerders): beheer/planning {kraanNodig, derden[]}, beheer/planning/beschik/<id>, beheer/planning/vast/<id>; wageneigenschappen in beheer/vloot/wagens/<id> {kraan, ladingen[]} */
 const LADING = ['Rondhout','Stamhout','Industriehout','Biomassa / chips','Gezaagd hout','Overig'];
-const PL = { inst:{ kraanNodig:{Rondhout:true, Stamhout:true, Industriehout:true}, derden:[] }, beschik:{}, vast:{}, vrachten:{}, weken:{} };
+const PL = { inst:{ kraanNodig:{Rondhout:true, Stamhout:true, Industriehout:true}, derden:[] }, beschik:{}, vast:{}, vrachten:{}, weken:{}, plaatsen:{} };
 const BESCHIK = {thuis:'moet thuis slapen', vrij:'vrij', vakantie:'vakantie', ziek:'ziek', opleiding:'opleiding/cursus'};
 const derdeVan = id => (PL.inst.derden||[]).find(d=>d.id===id);
 const ritLabel = r => r.uitv ? (r.derdeNaam || (derdeVan(r.uitv)||{}).naam || 'derde') : (r.wagen ? waKent(r.wagen) : '—');
@@ -2907,141 +2922,530 @@ function vsContext(){
     kraan: LADING.filter(l=>PL.inst.kraanNodig[l]).join(', ') || 'geen',
     derden: (PL.inst.derden||[]).map(d=>`- ${d.naam}${d.tarief?` (± € ${d.tarief} per rit)`:''}`).join('\n') || '- geen derden vastgelegd' };
 }
+/* ---- planningsmotor (rekent de week door; Claude begrijpt alleen de afspraken en zoekt plaatsen op) ---- */
+/* Havas planningsmotor — rekent een weekplanning door voor (veel) vrachten.
+   Uitgangspunten (instelbaar via regels):
+   - Een vracht = één wagenlading. Laden kan alleen met een kraanwagen erbij; die laadt eerst de trailer(s), dan zichzelf.
+   - Kraanwagens en trailers rijden als koppel (team). Een kraanwagen neemt zelf ook een vracht mee.
+   - Trailers lossen zelf. Lossen gebeurt per wagen, tegelijk.
+   - Rijtijd per dienst, dienstduur, rust, openingstijden per plaats, maximum lossen/laden per plaats per dag,
+     afspraken "wagen X staat van … tot … in plaats Y", vaste dag of vaste wagen per vracht.
+   De motor probeert veel varianten (gerandomiseerd gretig) en houdt de beste: meeste vrachten, dan minste lege km. */
+(function (root) {
+  'use strict';
+  const DAG = ['ma', 'di', 'wo', 'do', 'vr', 'za', 'zo'];
+  const nrm = s => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+  function tijd(s) { // 'di 04:00' of {dag,tijd} -> uren vanaf ma 00:00
+    if (s == null) return null; if (typeof s === 'number') return s;
+    const m = String(s).trim().toLowerCase().match(/^(ma|di|wo|do|vr|za|zo)\w*\s+(\d{1,2})[:.](\d{2})$/);
+    if (!m) return null; return DAG.indexOf(m[1]) * 24 + Number(m[2]) + Number(m[3]) / 60;
+  }
+  const uurVan = s => { const m = String(s || '').match(/^(\d{1,2})[:.](\d{2})$/); return m ? Number(m[1]) + Number(m[2]) / 60 : null; };
+  function fmt(x) { const d = Math.floor(x / 24); let r = x - d * 24; let h = Math.floor(r + 1e-9); let m = Math.round((r - h) * 60); if (m === 60) { h++; m = 0; } return `${DAG[d] || 'd' + d} ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`; }
+
+  function maakRNG(seed) { let s = seed >>> 0 || 1; return () => { s ^= s << 13; s >>>= 0; s ^= s >> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; }; }
+
+  function maakPlanner(inp) {
+    const R0 = inp.regels || {};
+    const R = {
+      startT: tijd(R0.start) ?? 5, startPlaats: R0.startPlaats || 'Uddel',
+      eindT: tijd(R0.eind) ?? (4 * 24 + 15.5), eindPlaats: R0.eindPlaats || R0.startPlaats || 'Uddel',
+      snel: Number(R0.snelheid) || 70, laadU: R0.laadUur ?? 1, losU: R0.losUur ?? 1,
+      maxRij: Number(R0.maxRijtijd) || 9, maxDienst: Number(R0.maxDienst) || 13, minRust: Number(R0.minRust) || 11,
+      vroegste: uurVan(R0.vroegsteStart) ?? 4, wegfactor: Number(R0.wegfactor) || 1.3,
+      kraanVerplicht: R0.kraanVerplicht !== false,
+      std: { van: uurVan((R0.standaardVenster || {}).van) ?? 6, tot: uurVan((R0.standaardVenster || {}).tot) ?? 18 },
+      maxVallen: R0.maxLatenVallen ?? null,
+      leegVermijden: (R0.leegVermijden || []).map(nrm),
+    };
+    const vensters = {}; (R0.vensters || []).forEach(v => { const k = nrm(v.plaats); const s = v.soort || 'beide';
+      const w = { van: uurVan(v.van) ?? R.std.van, tot: uurVan(v.tot) ?? R.std.tot };
+      if (s === 'laden' || s === 'beide') vensters[k + '|laden'] = w; if (s === 'lossen' || s === 'beide') vensters[k + '|lossen'] = w; });
+    const caps = {}; (R0.maxPerDag || []).forEach(c => { caps[nrm(c.plaats) + '|' + (c.soort || 'lossen')] = Number(c.aantal); });
+    const plaatsInfo = inp.plaatsen || {};
+    const coord = naam => { const p = plaatsInfo[nrm(naam)] || plaatsInfo[naam]; return p && Number.isFinite(p.lat) && Number.isFinite(p.lon) ? p : null; };
+    const kmCache = new Map();
+    function km(a, b) {
+      if (nrm(a) === nrm(b)) return 0; const key = nrm(a) < nrm(b) ? nrm(a) + '|' + nrm(b) : nrm(b) + '|' + nrm(a);
+      if (kmCache.has(key)) return kmCache.get(key);
+      const vast = (inp.kmVast || {})[key]; let d;
+      if (vast != null) d = vast; else {
+        const p = coord(a), q = coord(b); if (!p || !q) { d = NaN; } else {
+          const r = Math.PI / 180, dl = (q.lat - p.lat) * r, dn = (q.lon - p.lon) * r;
+          const h = Math.sin(dl / 2) ** 2 + Math.cos(p.lat * r) * Math.cos(q.lat * r) * Math.sin(dn / 2) ** 2;
+          d = Math.round(2 * 6371 * Math.asin(Math.sqrt(h)) * R.wegfactor); } }
+      kmCache.set(key, d); return d;
+    }
+    const venster = (plaats, soort) => vensters[nrm(plaats) + '|' + soort] || R.std;
+    function openOp(plaats, soort, t) { // eerstvolgend moment >= t dat de plaats open is
+      const w = venster(plaats, soort); let d = Math.floor(t / 24), h = t - d * 24;
+      if (h < w.van) return d * 24 + w.van; if (h >= w.tot) return (d + 1) * 24 + w.van; return t; }
+    const sluitOp = (plaats, soort, t) => { const w = venster(plaats, soort); return Math.floor(t / 24) * 24 + w.tot; };
+
+    // ---- wagens en koppels
+    const wagens = inp.wagens.map(w => ({ id: w.id, kenteken: w.kenteken, kraan: w.kraan === true }));
+    const afspraken = (R0.wagenAfspraken || []).map(a => ({ wagen: (wagens.find(w => nrm(w.kenteken) === nrm(a.kenteken)) || {}).id, kenteken: a.kenteken, plaats: a.plaats, van: tijd(a.van), tot: tijd(a.tot) }))
+      .filter(a => a.wagen && a.van != null && a.tot != null && a.tot > a.van);
+    let teamsBasis;
+    if (!R.kraanVerplicht) teamsBasis = wagens.map(w => [w]);
+    else {
+      const kr = wagens.filter(w => w.kraan), tr = wagens.filter(w => !w.kraan);
+      teamsBasis = kr.map(k => [k]);
+      if (inp.koppels) { // vaste koppels opgegeven: [[kraanId, trailerId, ...], ...]
+        teamsBasis = inp.koppels.map(ids => ids.map(id => wagens.find(w => w.id === id)).filter(Boolean)).filter(t => t.some(w => w.kraan));
+      } else tr.forEach((t, i) => { if (teamsBasis.length) teamsBasis[i % teamsBasis.length].push(t); });
+    }
+    const zonderTeam = wagens.filter(w => !teamsBasis.some(t => t.includes(w)));
+
+    // ---- vrachten
+    const vrachten = inp.vrachten.map(v => ({ id: v.id, ref: v.ref || v.id, van: v.van, naar: v.naar, aantal: Math.max(0, Math.round(Number(v.aantal) || 0)),
+      dag: v.dag ? DAG.indexOf(v.dag) : -1, wagen: v.wagen || '' }));
+    const onbekend = [...new Set(vrachten.flatMap(v => [v.van, v.naar]).concat([R.startPlaats, R.eindPlaats], afspraken.map(a => a.plaats)).filter(p => !coord(p) && !Object.keys(inp.kmVast || {}).some(k => k.includes(nrm(p)))))];
+    if (onbekend.length) return { fout: 'plaatsen', onbekend, stap(){ return 0; }, resultaat(){ return { fout: 'plaatsen', onbekend }; } };
+
+    // ---- vooraf: onvermijdelijke tekorten door losmaxima
+    const dagen = []; for (let d = Math.floor(R.startT / 24); d <= Math.floor(R.eindT / 24); d++) dagen.push(d);
+    const voorcontrole = [];
+    Object.entries(caps).forEach(([k, n]) => { const [p, soort] = k.split('|');
+      const vraag = vrachten.filter(v => nrm(soort === 'lossen' ? v.naar : v.van) === p).reduce((t, v) => t + v.aantal, 0);
+      const naam = (vrachten.find(v => nrm(soort === 'lossen' ? v.naar : v.van) === p) || {})[soort === 'lossen' ? 'naar' : 'van'] || p;
+      const max = n * dagen.length; if (vraag > max) voorcontrole.push({ soort: 'capaciteit', plaats: naam, actie: soort, vraag, max, tekort: vraag - max,
+        tekst: `${vraag} vrachten ${soort} in ${naam}, maar maximaal ${n} per dag × ${dagen.length} dagen = ${max}: minstens ${vraag - max} passen niet.` }); });
+    if (R.kraanVerplicht && !wagens.some(w => w.kraan)) voorcontrole.push({ soort: 'kraan', tekst: 'Er is geen enkele kraanwagen; niets kan worden geladen.' });
+    vrachten.forEach(v => { if (v.wagen && !wagens.some(w => w.id === v.wagen)) voorcontrole.push({ soort: 'wagen', tekst: `${v.ref}: de vaste wagen bestaat niet.` }); });
+
+    // ---- één variant doorrekenen
+    function variant(rand, ruis) {
+      const rest = Object.fromEntries(vrachten.map(v => [v.id, v.aantal]));
+      const capTel = {}; const redenen = {}; const ritten = []; const reizen = [];
+      const teams = teamsBasis.map((leden, i) => ({ i, leden, pos: R.startPlaats, t: R.startT, dStart: R.startT, rij: 0, actief: true, wachtPogingen: 0,
+        afspr: afspraken.filter(a => leden.some(w => w.id === a.wagen)).sort((a, b) => a.van - b.van), log: [], leegKm: 0, km: 0 }));
+      const noteer = (vid, r) => { (redenen[vid] = redenen[vid] || {})[r] = (redenen[vid][r] || 0) + 1; };
+
+      function sim(team, job) {
+        const st = { t: team.t, pos: team.pos, dStart: team.dStart, rij: team.rij, legs: [], leeg: 0, km: 0, rust: 0 };
+        const capLokaal = {};
+        const rust = () => { let x = st.t + R.minRust; const h = x - Math.floor(x / 24) * 24; if (h < R.vroegste) x = Math.floor(x / 24) * 24 + R.vroegste; st.t = x; st.dStart = x; st.rij = 0; st.rust++; };
+        const rij = (naar, geladen) => { const d = km(st.pos, naar); if (!Number.isFinite(d)) return 'afstand onbekend'; const u = d / R.snel; if (u > R.maxRij) return `rit ${st.pos} → ${naar} is langer dan de maximale rijtijd`;
+          if (st.rij + u > R.maxRij + 1e-9 || st.t + u - st.dStart > R.maxDienst + 1e-9) rust();
+          st.legs.push({ soort: 'rij', van: st.pos, naar, start: st.t, eind: st.t + u, km: d, geladen }); st.t += u; st.rij += u; st.pos = naar; st.km += d; if (!geladen) st.leeg += d; return null; };
+        const plek = (soort, dur, n) => { // laden/lossen op st.pos; n = aantal vrachten (voor maximum per dag)
+          for (let poging = 0; poging < 4; poging++) {
+            let s = openOp(st.pos, soort, st.t);
+            if (s + dur > sluitOp(st.pos, soort, s) + 1e-9) { st.t = Math.floor(s / 24) * 24 + 24; continue; }
+            if (s + dur - st.dStart > R.maxDienst + 1e-9) { rust(); continue; }
+            const ck = nrm(st.pos) + '|' + soort; if (caps[ck] != null) { const d = Math.floor(s / 24), k = ck + '|' + d;
+              if ((capTel[k] || 0) + (capLokaal[k] || 0) + n > caps[ck]) { st.t = (d + 1) * 24 + venster(st.pos, soort).van; if (st.t - st.dStart > R.maxDienst) rust(); if (poging === 3) return `${soort} in ${st.pos} vol (max ${caps[ck]} per dag)`; continue; }
+              capLokaal[k] = (capLokaal[k] || 0) + n; }
+            st.legs.push({ soort, plaats: st.pos, start: s, eind: s + dur, n }); st.t = s + dur; return null; }
+          return `${soort} in ${st.pos} past niet binnen de openingstijden`; };
+        const aankomst = (vanSt, naar) => { let t = vanSt.t, r = vanSt.rij, ds = vanSt.dStart; const d = km(vanSt.pos, naar); if (!Number.isFinite(d)) return Infinity; const u = d / R.snel;
+          if (r + u > R.maxRij + 1e-9 || t + u - ds > R.maxDienst + 1e-9) { t = t + R.minRust; const h = t - Math.floor(t / 24) * 24; if (h < R.vroegste) t = Math.floor(t / 24) * 24 + R.vroegste; }
+          return t + u; };
+        const start = st.t;
+        let f = rij(job.van, false); if (f) return { ok: false, reden: f };
+        const laadStart = st.t; const n = job.lading.length;
+        f = plek('laden', n * R.laadU, n); if (f) return { ok: false, reden: f };
+        const geladenOp = st.legs[st.legs.length - 1].start;
+        if (job.dag >= 0 && Math.floor(geladenOp / 24) !== job.dag) return { ok: false, reden: `vaste dag ${DAG[job.dag]} niet haalbaar` };
+        const losTijden = {};
+        for (const best of job.bestemmingen) { f = rij(best, true); if (f) return { ok: false, reden: f };
+          const m = job.lading.filter(x => x.naar === best).length; f = plek('lossen', R.losU, m); if (f) return { ok: false, reden: f }; losTijden[best] = st.t; }
+        if (st.t > R.eindT) return { ok: false, reden: 'past niet meer in de week' };
+        // afspraken van wagens in dit koppel
+        // vaste ritten (vaste wagen + vaste dag) van dit koppel moeten bereikbaar blijven
+        for (const v of vrachten) { if (!v.wagen || v.dag < 0 || rest[v.id] <= 0 || !team.leden.some(w => w.id === v.wagen) || job.lading.some(l => l.vracht === v)) continue;
+          const deadline = v.dag * 24 + venster(v.van, 'laden').tot - R.laadU; if (start <= deadline && aankomst(st, v.van) > deadline + 1e-9) return { ok: false, reden: `vaste rit ${v.ref} op ${DAG[v.dag]} komt in gevaar` }; }
+        for (const a of team.afspr) { if (start >= a.tot) continue;
+          if (aankomst(st, a.plaats) > a.van + 1e-9) return { ok: false, reden: `afspraak: ${a.kenteken} moet ${fmt(a.van)} in ${a.plaats} staan` }; }
+        // daarna nog op tijd op de eindplaats?
+        if (aankomst(st, R.eindPlaats) > R.eindT + 1e-9) return { ok: false, reden: `daarna niet op tijd terug in ${R.eindPlaats}` };
+        return { ok: true, st, start, laadStart, geladenOp, losTijden, duur: st.t - start };
+      }
+
+      function kandidaten(team) {
+        const ids = new Set(team.leden.map(w => w.id)); const perHerkomst = {};
+        vrachten.forEach(v => { if (rest[v.id] <= 0) return; if (v.wagen && !ids.has(v.wagen)) return; (perHerkomst[nrm(v.van)] = perHerkomst[nrm(v.van)] || []).push(v); });
+        const out = [];
+        Object.values(perHerkomst).forEach(lijst => {
+          lijst.forEach(hoofd => {
+            const lading = []; const r = Object.assign({}, rest); const leden = [...team.leden].sort((a, b) => b.kraan - a.kraan);
+            // vaste wagen eerst
+            const vast = lijst.filter(v => v.wagen); for (const v of vast) { const w = leden.find(x => x.id === v.wagen && !lading.some(l => l.wagen === x.id)); if (w && r[v.id] > 0) { lading.push({ wagen: w.id, vracht: v, naar: v.naar }); r[v.id]--; } }
+            const vrij = () => leden.filter(w => !lading.some(l => l.wagen === w.id));
+            if (!hoofd.wagen) for (const w of vrij()) { if (r[hoofd.id] <= 0) break; lading.push({ wagen: w.id, vracht: hoofd, naar: hoofd.naar }); r[hoofd.id]--; }
+            const anderen = lijst.filter(v => v !== hoofd && !v.wagen && r[v.id] > 0).sort((a, b) => km(hoofd.naar, a.naar) - km(hoofd.naar, b.naar));
+            for (const v of anderen) { if (km(hoofd.naar, v.naar) > 70) break; for (const w of vrij()) { if (r[v.id] <= 0) break; lading.push({ wagen: w.id, vracht: v, naar: v.naar }); r[v.id]--; } }
+            if (!lading.length) return;
+            const best = [...new Set(lading.map(l => l.naar))].sort((a, b) => km(hoofd.van, a) - km(hoofd.van, b));
+            const dagen_ = [...new Set(lading.map(l => l.vracht.dag).filter(d => d >= 0))];
+            out.push({ van: hoofd.van, lading, bestemmingen: best, dag: dagen_.length ? dagen_[0] : -1, sleutel: lading.map(l => l.vracht.id + '>' + l.wagen).sort().join(',') });
+          }); });
+        const gezien = new Set(); return out.filter(k => !gezien.has(k.sleutel) && gezien.add(k.sleutel));
+      }
+
+      function kosten(team, job, r) {
+        const n = job.lading.length; let c = r.duur;
+        c += (r.st.leeg / R.snel) * 0.6;
+        if (R.leegVermijden.length) r.st.legs.forEach(l => { if (l.soort === 'rij' && !l.geladen && R.leegVermijden.includes(nrm(l.naar))) c += (l.km / R.snel) * 0.8; });
+        c /= n;
+        // schaarse loscapaciteit vandaag benutten
+        job.bestemmingen.forEach(b => { const ck = nrm(b) + '|lossen'; if (caps[ck] != null) { const vraag = vrachten.filter(v => nrm(v.naar) === nrm(b)).reduce((t, v) => t + rest[v.id], 0);
+          const d = Math.floor(r.losTijden[b] / 24); const over = dagen.filter(x => x >= d).reduce((t, x) => t + Math.max(0, caps[ck] - (capTel[ck + '|' + x] || 0)), 0);
+          if (over > 0 && vraag / over > 0.7) c -= 1.2 * job.lading.filter(l => l.naar === b).length / n; } });
+        if (job.dag >= 0) c -= 3;
+        // vooruitkijken: hoe ver is de volgende ophaalplaats
+        let dichtst = Infinity; vrachten.forEach(v => { if (rest[v.id] > 0 && !job.lading.some(l => l.vracht === v && rest[v.id] <= job.lading.filter(x => x.vracht === v).length)) dichtst = Math.min(dichtst, km(r.st.pos, v.van)); });
+        if (Number.isFinite(dichtst)) c += 0.25 * dichtst / R.snel;
+        return c * (1 + (rand() - 0.5) * ruis);
+      }
+
+      function voerUit(team, job, r) {
+        const reis = { team: team.i, leden: team.leden.map(w => w.id), start: r.start, legs: r.st.legs, lading: job.lading.map(l => ({ wagen: l.wagen, vracht: l.vracht.id, naar: l.naar })) };
+        reizen.push(reis);
+        const kraan = team.leden.find(w => w.kraan);
+        job.lading.forEach(l => { rest[l.vracht.id]--; });
+        r.st.legs.forEach(l => { if (l.soort !== 'rij' && l.n) { const ck = nrm(l.plaats) + '|' + l.soort; if (caps[ck] != null) { const k = ck + '|' + Math.floor(l.start / 24); capTel[k] = (capTel[k] || 0) + l.n; } } });
+        const laadLeg = r.st.legs.find(l => l.soort === 'laden');
+        job.lading.forEach((l, i) => { const losLeg = r.st.legs.find(x => x.soort === 'lossen' && x.plaats === l.naar);
+          ritten.push({ wagen: l.wagen, vracht: l.vracht.id, ref: l.vracht.ref, van: job.van, naar: l.naar, vertrek: r.start, laadStart: laadLeg.start, losStart: losLeg.start, losEind: losLeg.eind,
+            leegKm: r.st.legs.filter(x => x.soort === 'rij' && !x.geladen && x.eind <= laadLeg.start + 1e-9).reduce((t, x) => t + x.km, 0),
+            geladenKm: r.st.legs.filter(x => x.soort === 'rij' && x.geladen && x.eind <= losLeg.start + 1e-9).reduce((t, x) => t + x.km, 0),
+            kraanWagen: kraan ? kraan.id : l.wagen, reis: reizen.length - 1 }); });
+        team.t = r.st.t; team.pos = r.st.pos; team.dStart = r.st.dStart; team.rij = r.st.rij; team.km += r.st.km; team.leegKm += r.st.leeg; team.wachtPogingen = 0;
+      }
+      function verplaats(team, naar, reden) { // lege rit, bijv. naar afspraak of naar huis
+        const d = km(team.pos, naar); if (!d) return; const u = d / R.snel;
+        if (team.rij + u > R.maxRij || team.t + u - team.dStart > R.maxDienst) { team.t += R.minRust; team.dStart = team.t; team.rij = 0; }
+        reizen.push({ team: team.i, leden: team.leden.map(w => w.id), start: team.t, legs: [{ soort: 'rij', van: team.pos, naar, start: team.t, eind: team.t + u, km: d, geladen: false }], lading: [], reden });
+        team.t += u; team.rij += u; team.pos = naar; team.km += d; team.leegKm += d; }
+
+      let veilig = 0;
+      while (teams.some(t => t.actief) && veilig++ < 5000) {
+        const team = teams.filter(t => t.actief).sort((a, b) => a.t - b.t)[0];
+        // lopende afspraak? dan wachten tot het einde
+        const nu = team.afspr.find(a => team.t >= a.van - 1e-9 && team.t < a.tot);
+        if (nu) { if (nrm(team.pos) !== nrm(nu.plaats)) verplaats(team, nu.plaats, 'afspraak'); team.t = Math.max(team.t, nu.tot); team.dStart = team.t; team.rij = 0; continue; }
+        let best = null, bestC = Infinity;
+        for (const job of kandidaten(team)) { const r = sim(team, job);
+          if (!r.ok) { job.lading.forEach(l => noteer(l.vracht.id, r.reden)); continue; }
+          const c = kosten(team, job, r); if (c < bestC) { bestC = c; best = { job, r }; } }
+        if (best) { voerUit(team, best.job, best.r); continue; }
+        const komend = team.afspr.find(a => a.van > team.t);
+        if (komend) { verplaats(team, komend.plaats, 'afspraak'); const rustTot = team.t + R.minRust; team.t = Math.max(team.t, komend.tot, komend.tot - team.t >= 0 ? komend.tot : rustTot); team.dStart = team.t; team.rij = 0; continue; }
+        if (team.wachtPogingen < 2 && team.t + R.minRust < R.eindT) { team.wachtPogingen++; team.t = team.t + R.minRust; const h = team.t % 24; if (h < R.vroegste) team.t += R.vroegste - h; team.dStart = team.t; team.rij = 0; continue; }
+        if (nrm(team.pos) !== nrm(R.eindPlaats)) verplaats(team, R.eindPlaats, 'naar huis');
+        team.actief = false;
+      }
+      teams.forEach(t => { if (t.actief && nrm(t.pos) !== nrm(R.eindPlaats)) verplaats(t, R.eindPlaats, 'naar huis'); });
+      const gepland = vrachten.reduce((s, v) => s + (v.aantal - rest[v.id]), 0);
+      const leegKm = teams.reduce((s, t) => s + t.leegKm, 0), kmTot = teams.reduce((s, t) => s + t.km, 0);
+      return { gepland, rest, ritten, reizen, redenen, leegKm, kmTot, teams: teams.map(t => ({ leden: t.leden.map(w => w.kenteken), km: t.km, leegKm: t.leegKm, eind: t.t, pos: t.pos })) };
+    }
+
+    const rng = maakRNG(inp.seed || 12345);
+    let best = null, n = 0, laatsteVerbetering = 0;
+    function stap(aantal) { for (let i = 0; i < aantal; i++, n++) { const v = variant(rng, n === 0 ? 0 : 0.35);
+        if (!best || v.gepland > best.gepland || (v.gepland === best.gepland && v.leegKm < best.leegKm - 1e-9)) { best = v; laatsteVerbetering = n; } } return n; }
+    function resultaat() {
+    // controle achteraf (onafhankelijk van de zoekfunctie): rijtijd per dienst, eindplaats, overlap per wagen
+    const controle = [];
+    { // per koppel alle stappen op tijd volgorde nalopen
+      const perTeam = {}; best.reizen.forEach(z => (perTeam[z.team] = perTeam[z.team] || []).push(...z.legs.map(l => Object.assign({}, l))));
+      Object.entries(perTeam).forEach(([ti, legs]) => { legs.sort((a, b) => a.start - b.start); const naam = teamsBasis[ti].map(w => w.kenteken).join(' + ');
+        let dStart = null, rij = 0, vorigEind = R.startT, pos = R.startPlaats;
+        legs.forEach(l => { if (l.start < vorigEind - 1e-6) controle.push(`${naam}: overlap om ${fmt(l.start)}`);
+          if (dStart == null || l.start - vorigEind >= R.minRust - 1e-6) { dStart = l.start; rij = 0; }
+          if (l.soort === 'rij') { if (nrm(l.van) !== nrm(pos)) controle.push(`${naam}: rijdt vanaf ${l.van} maar stond in ${pos}`); rij += l.eind - l.start; pos = l.naar;
+            if (rij > R.maxRij + 1e-6) controle.push(`${naam}: ${rij.toFixed(1)} u rijtijd in dienst vanaf ${fmt(dStart)}`); }
+          else { const w = venster(l.plaats, l.soort), h = l.start - Math.floor(l.start / 24) * 24; if (h < w.van - 1e-6 || h + (l.eind - l.start) > w.tot + 1e-6) controle.push(`${naam}: ${l.soort} in ${l.plaats} om ${fmt(l.start)} buiten openingstijd`); }
+          if (l.eind - dStart > R.maxDienst + 1e-6) controle.push(`${naam}: dienst vanaf ${fmt(dStart)} duurt ${(l.eind - dStart).toFixed(1)} u`);
+          vorigEind = l.eind; });
+        teamsBasis[ti].forEach(w => afspraken.filter(a => a.wagen === w.id).forEach(a => {
+          const bezig = legs.find(l => l.start < a.tot - 1e-6 && l.eind > a.van + 1e-6); const voor = legs.filter(l => l.eind <= a.van + 1e-6).pop();
+          const waar = voor ? (voor.soort === 'rij' ? voor.naar : voor.plaats) : R.startPlaats;
+          if (bezig || nrm(waar) !== nrm(a.plaats)) controle.push(`${w.kenteken} staat ${fmt(a.van)}–${fmt(a.tot)} niet in ${a.plaats}${bezig ? ' (onderweg om ' + fmt(bezig.start) + ')' : ' maar in ' + waar}`); })); });
+      const tel = {}; best.reizen.forEach(z => z.legs.forEach(l => { if (l.n) { const ck = nrm(l.plaats) + '|' + l.soort; if (caps[ck] != null) { const k = ck + '|' + Math.floor(l.start / 24); tel[k] = (tel[k] || 0) + l.n; if (tel[k] > caps[ck]) controle.push(`${l.soort} in ${l.plaats} op ${DAG[Math.floor(l.start / 24)]}: ${tel[k]} (max ${caps[ck]})`); } } }));
+    }
+    best.teams.forEach(t => { if (nrm(t.pos) !== nrm(R.eindPlaats)) controle.push(`${t.leden.join(' + ')} eindigt in ${t.pos}`); if (t.eind > R.eindT + 1e-9) controle.push(`${t.leden.join(' + ')} is pas ${fmt(t.eind)} klaar`); });
+    const totaal = vrachten.reduce((s, v) => s + v.aantal, 0);
+    const niet = vrachten.filter(v => best.rest[v.id] > 0).map(v => { const r = best.redenen[v.id] || {};
+      const cap = voorcontrole.find(c => c.soort === 'capaciteit' && nrm(c.plaats) === nrm(c.actie === 'lossen' ? v.naar : v.van));
+      let lijst = Object.entries(r).sort((a, b) => b[1] - a[1]).map(x => x[0]); if (lijst.some(x => !x.startsWith('afspraak'))) lijst = lijst.filter(x => !x.startsWith('afspraak'));
+      const top = (cap ? [`maximum ${cap.actie} in ${cap.plaats} (${cap.max} per week) is bereikt`] : []).concat(lijst).slice(0, 2);
+      return { vracht: v.id, ref: v.ref, aantal: best.rest[v.id], redenen: top.length ? top : ['geen ruimte meer in de week bij de koppels'] }; });
+    return { regels: R, teams: teamsBasis.map(t => t.map(w => w.kenteken)), zonderTeam: zonderTeam.map(w => w.kenteken), voorcontrole, iteraties: n, totaal, gepland: best.gepland, niet,
+      ritten: best.ritten, reizen: best.reizen, leegKm: best.leegKm, kmTot: best.kmTot, controle, fmt, km };
+    }
+    return { stap, resultaat, get beste(){ return best ? best.gepland : 0; }, get iteraties(){ return n; }, get sindsVerbetering(){ return n - laatsteVerbetering; }, totaal: vrachten.reduce((s, v) => s + v.aantal, 0), voorcontrole };
+  }
+  function planWeek(inp) { const p = maakPlanner(inp); if (p.fout) return p; const tot = Date.now() + (inp.tijdslimietMs || 4000); while (p.iteraties < (inp.iteraties || 300) && Date.now() < tot) p.stap(10); return p.resultaat(); }
+  root.planWeek = planWeek; root.maakPlanner = maakPlanner; root.planTijd = tijd; root.planFmt = fmt;
+})(typeof window !== 'undefined' ? window : globalThis);
+
 function vsVracht(){ // vrachten van deze week met korte referenties v1, v2, …
   const vr = vrachtenWeek(); const tel = vrStand();
   return vr.map((v,i)=>Object.assign({}, v, { ref: 'v'+(i+1), gepland: Math.min(tel[v.id]||0, Number(v.aantal)||0) })); }
-function vsPrompt(){
-  const c = vsContext(), vr = vsVracht(), af = afsprakenWeek();
-  const open = vr.filter(v=>v.aantal - v.gepland > 0);
-  const vrTekst = open.map(v=>`- ${v.ref}: ${v.aantal - v.gepland}× ${v.soort || v.lading || 'vracht'}${v.lading?` (ladingtype ${v.lading})`:''}, laden in ${v.van} → lossen in ${v.naar}${v.dag?`; op ${DAGNAAM[v.dag]}`:''}${v.wagen?`; met wagen ${waKent(v.wagen)}`:''}${v.opm?`; ${v.opm}`:''}${v.gepland?` (${v.gepland} al ingepland)`:''}`).join('\n');
-  const qa = (VS && VS.qa || []).map(x=>`- Vraag: ${x.vraag}\n  Antwoord van de planner: ${x.antwoord}`).join('\n');
-  return `Je bent de planner van Havas Houttransport (Elspeet), een houttransportbedrijf. Maak een planningsvoorstel voor week ${isoWeek(pWeek).week}: ${c.keys.map(k=>fmtDag(parseYmd(k))+' = '+k).join(', ')}. Geen zondag.
-Je werkt samen met de menselijke planner. Wees eerlijk over wat wel en niet past: liever een duidelijke terugkoppeling dan een voorstel dat er goed uitziet maar niet klopt.
-
-WAGENS
-${c.wag}
-
-CHAUFFEURS (met afwezigheid deze week)
-${c.ch}
-
-LADING DIE BIJ HET LADEN EEN KRAAN VRAAGT: ${c.kraan}
-
-DERDEN (charters)
-${c.derden}
-
-AL INGEPLAND DEZE WEEK (niet opnieuw plannen, wel rekening mee houden)
-${c.bestaand || '- niets'}
-
-VRACHTEN DIE NOG GEPLAND MOETEN WORDEN (elke vracht = één wagenlading; verwijs met "vracht" naar de ref)
-${vrTekst || '- geen vrachtenlijst; gebruik de vrije tekst hieronder'}
-
-AFSPRAKEN EN RANDVOORWAARDEN VAN DE PLANNER (gelden als harde regels, tenzij er "liefst" of "zo min mogelijk" staat)
-${af.map(a=>'- '+a).join('\n') || '- geen'}
-${VS && VS.extra ? `\nEXTRA UITLEG VAN DE PLANNER\n${VS.extra}\n` : ''}${qa ? `\nEERDER GESTELDE VRAGEN EN ANTWOORDEN (verwerk deze antwoorden)\n${qa}\n` : ''}
-HARDE REGELS
-1. Een wagen en een chauffeur kunnen niet twee ritten tegelijk doen (ook niet met al ingeplande ritten).
-2. Alleen wagens die geschikt zijn voor de lading.
-3. Lading die een kraan vraagt: de wagen heeft zelf een autolaadkraan, óf rijdt samen met een kraanwagen die dezelfde dag op hetzelfde laadadres laadt. Plan dan ook de rit van de kraanwagen en verwijs met "mee_met" naar de ref van die rit. Een kraanwagen neemt zelf ook een vracht mee.
-4. Een chauffeur die vrij, ziek, met vakantie of op opleiding is, krijgt die dag geen rit. Bij "moet thuis slapen": geen overnachting na die dag.
-5. Een dienst duurt niet langer dan 13 uur; reken reistijd tussen plaatsen mee (schat afstanden over de weg; gebruik de snelheid uit de afspraken, anders 70 km/u).
-WERKWIJZE
-- Elke rit = één wagen met één vracht van laadplaats naar losplaats. Lege verplaatsingen zijn geen rit; noem ze in "toelichting".
-- Eerst de eigen vloot; derden alleen als de eigen vloot het niet aankan of als de planner dat vraagt.
-- Een chauffeur zo veel mogelijk op zijn vaste wagen.
-- Past niet alles: plan wat wel past, zet de rest per vracht-ref met het aantal en de reden in "niet_gepland", en leg in "knelpunten" uit waar het op vastloopt (bijv. te veel vrachten voor de capaciteit, lostijden, rijtijd, kraanwagens).
-- Mis je informatie die de planning wezenlijk verandert (bijv. openingstijden, afstanden, welke wagen een kraan heeft, wie welke wagen rijdt)? Stel dan een korte vraag in "vragen", plan intussen met een redelijke aanname en noem die in "aannames".
-- Verzin geen adressen of hoeveelheden.
-- Tel na afloop zelf na: per vracht-ref moet (aantal ritten met die ref) + (aantal in niet_gepland) gelijk zijn aan het gevraagde aantal.
-
-Antwoord met alleen JSON in deze vorm:
-{"haalbaar":"ja"|"deels"|"nee","samenvatting":"2-3 zinnen voor de planner","aanpak":["korte stap: hoe je het hebt aangepakt"],"aannames":["..."],"knelpunten":[{"ernst":"hoog"|"middel","tekst":"..."}],"vragen":[{"vraag":"...","waarom":"wat het antwoord verandert"}],
-"ritten":[{"ref":"r1","vracht":"v1"|null,"datum":"YYYY-MM-DD","uitvoerder":"eigen"|"<naam derde>","wagen":"<kenteken>"|null,"chauffeur":"<naam>"|null,"start":"HH:MM","eind":"HH:MM","laad":"","los":"","lading":"${LADING.join('|')}","hoeveelheid":null,"eenheid":"m³|ton|stuks","overnachting":false,"mee_met":"r2"|null,"zekerheid":"hoog"|"middel"|"laag","toelichting":""}],
-"niet_gepland":[{"vracht":"v3"|null,"aantal":1,"reden":"..."}]}`;
-}
-function vsVoorcontrole(){
+const STD_REGELS = { start:'ma 05:00', startPlaats:'Elspeet', eind:'vr 16:00', eindPlaats:'Elspeet', snelheid:70, laadUur:1, losUur:1, maxRijtijd:9, maxDienst:13, minRust:11,
+  vroegsteStart:'04:00', wegfactor:1.3, kraanVerplicht:true, standaardVenster:{van:'06:00', tot:'18:00'}, vensters:[], maxPerDag:[], wagenAfspraken:[], leegVermijden:[], maxLatenVallen:null, koppels:{} };
+function regelsVoorWeek(wid){
+  const eigen = PL.weken[wid] && PL.weken[wid].regels; if (eigen) return JSON.parse(JSON.stringify(Object.assign({}, STD_REGELS, eigen)));
+  // anders: regels van de laatste eerdere week als sjabloon (zonder wagenafspraken, die zijn per week)
+  const eerder = Object.keys(PL.weken).filter(k=>k<wid && PL.weken[k].regels).sort().pop();
+  const r = JSON.parse(JSON.stringify(Object.assign({}, STD_REGELS, eerder ? PL.weken[eerder].regels : {}))); r.wagenAfspraken = []; r._sjabloon = eerder || 'standaard'; return r; }
+const plaatsSleutel = n => norm(n).slice(0,120) || 'x';
+const coordGetal = v => { if (typeof v === 'number') return v; const n = Number(String(v ?? '').trim().replace(',', '.')); return String(v ?? '').trim() === '' ? NaN : n; };
+function plaatsenNodig(R, vr){ const set = new Map(); const add = n => { if (n && n.trim()) set.set(plaatsSleutel(n), n.trim()); };
+  add(R.startPlaats); add(R.eindPlaats); vr.forEach(v=>{ add(v.van); add(v.naar); }); (R.wagenAfspraken||[]).forEach(a=>add(a.plaats)); return [...set.entries()].map(([k,naam])=>({k, naam})); }
+const plaatsCoord = n => { const p = PL.plaatsen[plaatsSleutel(n)]; return p && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lon)) ? p : null; };
+function kmSchat(a, b, R){ const p = plaatsCoord(a), q = plaatsCoord(b); if (!p || !q) return null; const r = Math.PI/180, dl=(q.lat-p.lat)*r, dn=(q.lon-p.lon)*r;
+  const h = Math.sin(dl/2)**2 + Math.cos(p.lat*r)*Math.cos(q.lat*r)*Math.sin(dn/2)**2; return Math.round(2*6371*Math.asin(Math.sqrt(h))*(Number(R.wegfactor)||1.3)); }
+function koppelsVan(R){ // trailerId -> kraanId ; standaard om en om verdeeld
+  const kr = wagens().filter(w=>(VL.wagen[w.id]||{}).kraan===true), tr = wagens().filter(w=>(VL.wagen[w.id]||{}).kraan!==true); const uit = {};
+  tr.forEach((t,i)=>{ const gekozen = R.koppels && R.koppels[t.id]; uit[t.id] = gekozen && kr.some(k=>k.id===gekozen) ? gekozen : (kr.length ? kr[i % kr.length].id : ''); }); return uit; }
+function vsVoorcontrole(R){
   const vr = vsVracht(), af = afsprakenWeek(); const wa = wagens(); const out = [];
   const totaal = vr.reduce((t,v)=>t+(Number(v.aantal)||0),0), open = vr.reduce((t,v)=>t+(v.aantal - v.gepland),0);
-  out.push(vr.length ? ['ok', `${totaal} vracht${totaal===1?'':'en'} in de lijst (${vr.length} regel${vr.length===1?'':'s'}), waarvan ${open} nog te plannen`] : ['warn', 'Geen vrachten in de vrachtenlijst. Typ ze rechts bij “Vrachten”, of beschrijf het werk hieronder.']);
-  const kr = wa.filter(w=>(VL.wagen[w.id]||{}).kraan===true).length, tr = wa.filter(w=>(VL.wagen[w.id]||{}).kraan===false).length, onb = wa.filter(w=>(VL.wagen[w.id]||{}).kraan==null);
-  out.push(onb.length ? ['warn', `${wa.length} wagens: ${kr} met kraan, ${tr} trailer; bij ${onb.map(w=>w.kenteken).join(', ')} is niet aangegeven of er een kraan op zit (knop onder het kenteken)`] : ['ok', `${wa.length} wagens: ${kr} met kraan, ${tr} trailer`]);
-  out.push(af.length ? ['ok', `${af.length} afspra${af.length===1?'ak':'ken'} voor deze week`] : ['info', 'Geen afspraken voor deze week (lostijden, maxima, rijtijden …). Typ ze bij de vrachten als ze er zijn.']);
-  const keys = [...Array(6)].map((_,i)=>ymd(addDays(pWeek,i))); const afw = chauffeurs().filter(c=>keys.some(k=>beschikOp(c.id,k).length)).length;
-  out.push(['ok', `${chauffeurs().length} chauffeurs${afw?`, ${afw} met afwezigheid of beperking deze week`:''}`]);
-  const al = Object.values(S.ritten).filter(r=>r.datum>=keys[0] && r.datum<=ymd(addDays(pWeek,6))).length;
-  if (al) out.push(['ok', `${al} rit${al===1?'':'ten'} staan al in het rooster; daar wordt omheen gepland`]);
-  if (!open && vr.length) out.push(['warn', 'Alle vrachten in de lijst zijn al ingepland.']);
+  out.push(vr.length ? ['ok', `${totaal} vracht${totaal===1?'':'en'} in de lijst (${vr.length} regel${vr.length===1?'':'s'}), waarvan ${open} nog te plannen`] : ['bad', 'Geen vrachten in de vrachtenlijst. Typ ze rechts bij “Vrachten”.']);
+  const kr = wa.filter(w=>(VL.wagen[w.id]||{}).kraan===true), tr = wa.filter(w=>(VL.wagen[w.id]||{}).kraan===false), onb = wa.filter(w=>(VL.wagen[w.id]||{}).kraan==null);
+  out.push(onb.length ? ['warn', `${wa.length} wagens: ${kr.length} met kraan, ${tr.length} trailer; bij ${onb.map(w=>w.kenteken).join(', ')} is niet aangegeven of er een kraan op zit (telt als trailer)`] : ['ok', `${wa.length} wagens: ${kr.length} met kraan, ${tr.length} trailer`]);
+  if (R.kraanVerplicht !== false && !kr.length) out.push(['bad', 'Geen enkele wagen heeft een kraan: niets kan worden geladen.']);
+  out.push(af.length ? ['ok', `${af.length} afspra${af.length===1?'ak':'ken'} voor deze week${PL.weken[vrWeek()] && PL.weken[vrWeek()].regels ? '' : ' (nog niet omgezet in regels)'}`] : ['info', 'Geen afspraken voor deze week. Je kunt de regels hieronder ook zelf invullen.']);
+  const keys = [...Array(6)].map((_,i)=>ymd(addDays(pWeek,i))); const al = Object.values(S.ritten).filter(r=>r.datum>=keys[0] && r.datum<=ymd(addDays(pWeek,6)));
+  if (al.length) out.push(['warn', `${al.length} rit${al.length===1?' staat':'ten staan'} al in het rooster. De rekenmotor plant alleen de open vrachten en houdt geen rekening met die ritten; haal ze eventueel eerst weg.`]);
   return { out, open, vr };
 }
-function vsInvoer(){
-  $('#vs-title').textContent = `Planningsvoorstel week ${isoWeek(pWeek).week}`;
-  const vc = vsVoorcontrole();
-  $('#vs-body').innerHTML = `<p class="lead" style="margin:0">Claude maakt een voorstel op basis van de vrachtenlijst, de afspraken en de planregels. Je ziet daarna wat wel en niet past, welke aannames er zijn gedaan en welke vragen Claude heeft. Er wordt niets ingepland zonder je Akkoord.</p>
-    <div class="vs-blok"><h3>Dit gaat mee</h3><ul style="list-style:none;padding:0">${vc.out.map(([l,t])=>`<li><span class="chip ${l==='ok'?'ok':l==='warn'?'warn':''}" style="margin-right:6px">${l==='ok'?'✓':l==='warn'?'!':'i'}</span>${esc(t)}</li>`).join('')}</ul></div>
-    <label>Extra uitleg of wensen (mag leeg)<textarea id="vs-werk" style="min-height:${vc.vr.length?90:180}px" placeholder="${vc.vr.length ? 'Bijv. Jan Vos liefst op de Duitsland-rit; derden alleen als het echt niet anders kan.' : 'Beschrijf het werk voor deze week zoals je het een planner zou vertellen.'}">${esc(VS && VS.extra || '')}</textarea></label>
-    ${Object.values(PL.vast).some(v=>v.actief!==false) ? '<p class="hint" style="margin:0">Tip: zet eerst de vaste ritten klaar, dan plant Claude daaromheen.</p>' : ''}`;
-  $('#vs-acties').innerHTML = `<button class="btn primary" type="button" id="vs-maak">Maak voorstel</button>`;
+const DAGSEL = (naam, val) => `<select data-r="${naam}-dag">${['ma','di','wo','do','vr','za'].map(d=>`<option${String(val||'').startsWith(d)?' selected':''}>${d}</option>`).join('')}</select>`;
+const tijdDeel = v => (String(v||'').match(/(\d{1,2}:\d{2})/)||[])[1] || '';
+function vsRegelsHtml(R){
+  const kr = wagens().filter(w=>(VL.wagen[w.id]||{}).kraan===true), tr = wagens().filter(w=>(VL.wagen[w.id]||{}).kraan!==true); const kp = koppelsVan(R);
+  const lijst = (soort, rijen, velden) => `<div class="vs-lijst" data-lijst="${soort}">${rijen.map((x,i)=>`<div class="rij" data-i="${i}">${velden(x)}<button class="x" type="button" data-weg="${soort}|${i}" aria-label="Verwijderen">×</button></div>`).join('')}<div><button class="btn small" type="button" data-erbij="${soort}">+ toevoegen</button></div></div>`;
+  const plaatsIn = (v, ph) => `<input data-k="plaats" value="${esc(v||'')}" placeholder="${ph||'plaats'}" style="width:10em">`;
+  const tIn = (k, v) => `<input data-k="${k}" value="${esc(v||'')}" placeholder="uu:mm" style="width:5em">`;
+  return `<div class="vs-regels">
+      <label>Start (dag, tijd, plaats)<span style="display:flex;gap:4px">${DAGSEL('start', R.start)}<input data-r="start-tijd" value="${esc(tijdDeel(R.start))}" style="width:5em"><input data-r="startPlaats" value="${esc(R.startPlaats)}"></span></label>
+      <label>Klaar (dag, tijd, plaats)<span style="display:flex;gap:4px">${DAGSEL('eind', R.eind)}<input data-r="eind-tijd" value="${esc(tijdDeel(R.eind))}" style="width:5em"><input data-r="eindPlaats" value="${esc(R.eindPlaats)}"></span></label>
+      <label>Gemiddelde snelheid (km/u)<input data-r="snelheid" inputmode="decimal" value="${esc(R.snelheid)}"></label>
+      <label>Laden per vracht (uur)<input data-r="laadUur" inputmode="decimal" value="${esc(R.laadUur)}"></label>
+      <label>Lossen per vracht (uur)<input data-r="losUur" inputmode="decimal" value="${esc(R.losUur)}"></label>
+      <label>Max. rijtijd per dienst (uur)<input data-r="maxRijtijd" inputmode="decimal" value="${esc(R.maxRijtijd)}"></label>
+      <label>Max. dienst (uur)<input data-r="maxDienst" inputmode="decimal" value="${esc(R.maxDienst)}"></label>
+      <label>Min. rust tussen diensten (uur)<input data-r="minRust" inputmode="decimal" value="${esc(R.minRust)}"></label>
+      <label>Vroegste start dienst<input data-r="vroegsteStart" value="${esc(R.vroegsteStart)}"></label>
+      <label>Laad-/lostijden overal (tenzij hieronder anders)<span style="display:flex;gap:4px"><input data-r="std-van" value="${esc((R.standaardVenster||{}).van||'06:00')}" style="width:5em">–<input data-r="std-tot" value="${esc((R.standaardVenster||{}).tot||'18:00')}" style="width:5em"></span></label>
+      <label>Max. vrachten laten vallen<input data-r="maxLatenVallen" inputmode="numeric" value="${R.maxLatenVallen==null?'':esc(R.maxLatenVallen)}" placeholder="geen"></label>
+      <label>Afstand over de weg = hemelsbreed ×<input data-r="wegfactor" inputmode="decimal" value="${esc(R.wegfactor)}"></label>
+      <label style="display:flex;gap:6px;align-items:center;color:var(--ink);align-self:end"><input type="checkbox" data-r="kraanVerplicht"${R.kraanVerplicht!==false?' checked':''} style="width:auto"> Laden alleen met een kraanwagen erbij</label>
+    </div>
+    <div class="vs-sub">Laad-/lostijden per plaats</div>${lijst('vensters', R.vensters||[], x=>`${plaatsIn(x.plaats)}<select data-k="soort">${['beide','laden','lossen'].map(o=>`<option${o===(x.soort||'beide')?' selected':''}>${o}</option>`).join('')}</select>${tIn('van',x.van)}–${tIn('tot',x.tot)}`)}
+    <div class="vs-sub">Maximum per dag per plaats</div>${lijst('maxPerDag', R.maxPerDag||[], x=>`${plaatsIn(x.plaats)}<select data-k="soort">${['lossen','laden'].map(o=>`<option${o===(x.soort||'lossen')?' selected':''}>${o}</option>`).join('')}</select><input data-k="aantal" inputmode="numeric" value="${esc(x.aantal??'')}" style="width:4em"> vrachten per dag`)}
+    <div class="vs-sub">Wagen moet op een plaats staan</div>${lijst('wagenAfspraken', R.wagenAfspraken||[], x=>`<select data-k="kenteken">${wagens().map(w=>`<option${norm(w.kenteken)===norm(x.kenteken)?' selected':''}>${esc(w.kenteken)}</option>`).join('')}</select> in ${plaatsIn(x.plaats)} van <input data-k="van" value="${esc(x.van||'')}" placeholder="wo 20:00" style="width:6.5em"> tot <input data-k="tot" value="${esc(x.tot||'')}" placeholder="do 04:00" style="width:6.5em">`)}
+    <div class="vs-sub">Zo min mogelijk leeg rijden naar</div><input data-r="leegVermijden" value="${esc((R.leegVermijden||[]).join(', '))}" placeholder="plaatsen, met komma's">
+    <div class="vs-sub">Koppels (trailer rijdt met kraanwagen)</div><div class="vs-lijst">${tr.length ? tr.map(t=>`<div class="rij"><span style="font-family:var(--f-mono);min-width:7em">${esc(t.kenteken)}</span> rijdt met <select data-koppel="${esc(t.id)}">${kr.map(k=>`<option value="${esc(k.id)}"${kp[t.id]===k.id?' selected':''}>${esc(k.kenteken)}</option>`).join('')}</select></div>`).join('') : '<span class="hint">Geen trailers.</span>'}</div>`;
 }
-$('#p-ai').onclick = () => { if (!magMaken()) return; if (!S.sample) return toast('Claude is in deze weergave niet beschikbaar.'); if (VS && VS.rijen){ $('#vs-dlg').showModal(); return vsToon(); } VS = null; vsInvoer(); $('#vs-dlg').showModal(); };
-function vsNorm(r){ r = r||{}; const w = r.wagen ? S.stam.wagens.find(x=>norm(x.kenteken)===norm(r.wagen)) : null;
-  const c = r.chauffeur ? S.stam.chauffeurs.find(x=>norm(x.naam)===norm(r.chauffeur)) || S.stam.chauffeurs.find(x=>norm(x.naam).startsWith(norm(String(r.chauffeur).split(' ')[0]))) : null;
-  const uitvNaam = r.uitvoerder && norm(r.uitvoerder)!=='eigen' ? String(r.uitvoerder) : ''; const d = uitvNaam ? (PL.inst.derden||[]).find(x=>norm(x.naam)===norm(uitvNaam)) : null;
-  const hv = getal(r.hoeveelheid); const zk = String(r.zekerheid||'').toLowerCase();
-  return { ref:String(r.ref||''), vracht: r.vracht ? String(r.vracht) : '', datum: (xlDatum(r.datum) ? ymd(xlDatum(r.datum)) : ''), uitv: d ? d.id : (uitvNaam ? '__nieuw:'+uitvNaam : ''), derdeNaam: d ? d.naam : uitvNaam,
-    wagen: w ? w.id : '', chauffeur: c ? c.id : '', start: xlTijd(r.start)||'', eind: xlTijd(r.eind)||'', laad:String(r.laad||''), los:String(r.los||''),
-    lading: LADING.includes(r.lading) ? r.lading : 'Overig', hv: Number.isFinite(hv)?hv:null, eh: ['m³','ton','stuks'].includes(r.eenheid)?r.eenheid:'m³', overnachting: r.overnachting===true,
-    meeRef: r.mee_met ? String(r.mee_met) : '', toelichting: String(r.toelichting||''), zeker: zk.startsWith('h') ? 'hoog' : zk.startsWith('l') ? 'laag' : zk.startsWith('m') ? 'middel' : 'middel',
-    onbekend: [r.wagen && !w ? 'wagen '+r.wagen : '', r.chauffeur && !c ? 'chauffeur '+r.chauffeur : ''].filter(Boolean), mee:true }; }
-const lijstVan = (x, f) => Array.isArray(x) ? x.map(f).filter(Boolean) : [];
-async function vsMaak(){
-  const extra = ($('#vs-werk') ? $('#vs-werk').value : (VS && VS.extra) || '').trim();
-  const vc = vsVoorcontrole();
-  if (!vc.open && extra.length < 10) return toast('Er is niets te plannen: voeg vrachten toe of beschrijf het werk.');
-  const qa = VS && VS.qa || [];
-  VS = { extra, qa, bezig: true, refs: Object.fromEntries(vsVracht().map(v=>[v.ref, v])) };
-  const t0 = Date.now(); let ritten = 0, tekens = 0;
-  const stap = (k, l, t) => `<li class="${k}">${t}</li>`;
-  const teken = () => { $('#vs-body').innerHTML = `<ol class="vs-stappen">
-      ${stap('ok','', `Gegevens verzameld: ${vc.out.filter(x=>x[0]!=='info').map(x=>esc(x[1])).join(' · ')}`)}
-      ${qa.length ? stap('ok','', `${qa.length} antwoord${qa.length===1?'':'en'} op eerdere vragen meegegeven`) : ''}
-      ${stap('bezig','', `Claude plant… <b id="vs-teller">${ritten} ritten opgesteld</b> <small style="color:var(--muted)" id="vs-tijd">${Math.round((Date.now()-t0)/1000)} s</small>`)}
-      ${stap('wacht','', 'Controle: elke vracht geteld en elke rit langs de planregels')}
-    </ol><p class="hint" style="margin:0">Dit kan één tot enkele minuten duren bij veel vrachten. Je kunt dit venster openlaten.</p>`; };
-  teken(); $('#vs-acties').innerHTML = `<button class="btn" type="button" id="vs-stop">Stoppen</button>`;
-  const klok = setInterval(()=>{ const el = $('#vs-tijd'); if (el) el.textContent = Math.round((Date.now()-t0)/1000) + ' s'; }, 1000);
-  vsCtl = new AbortController();
+function vsLeesRegels(){ // formulier → regels
+  const B = $('#vs-body'); const g = sel => B.querySelector(sel); const num = (sel, d) => { const v = getal((g(sel)||{}).value); return Number.isFinite(v) ? v : d; };
+  const R = Object.assign({}, VS.regels);
+  R.start = `${g('[data-r="start-dag"]').value} ${xlTijd(g('[data-r="start-tijd"]').value) || '05:00'}`; R.startPlaats = g('[data-r="startPlaats"]').value.trim();
+  R.eind = `${g('[data-r="eind-dag"]').value} ${xlTijd(g('[data-r="eind-tijd"]').value) || '16:00'}`; R.eindPlaats = g('[data-r="eindPlaats"]').value.trim();
+  R.snelheid = num('[data-r="snelheid"]', 70); R.laadUur = num('[data-r="laadUur"]', 1); R.losUur = num('[data-r="losUur"]', 1);
+  R.maxRijtijd = num('[data-r="maxRijtijd"]', 9); R.maxDienst = num('[data-r="maxDienst"]', 13); R.minRust = num('[data-r="minRust"]', 11);
+  R.vroegsteStart = xlTijd(g('[data-r="vroegsteStart"]').value) || '04:00'; R.wegfactor = num('[data-r="wegfactor"]', 1.3);
+  R.standaardVenster = { van: xlTijd(g('[data-r="std-van"]').value) || '06:00', tot: xlTijd(g('[data-r="std-tot"]').value) || '18:00' };
+  const mv = getal(g('[data-r="maxLatenVallen"]').value); R.maxLatenVallen = Number.isFinite(mv) ? Math.round(mv) : null;
+  R.kraanVerplicht = g('[data-r="kraanVerplicht"]').checked;
+  R.leegVermijden = g('[data-r="leegVermijden"]').value.split(',').map(x=>x.trim()).filter(Boolean);
+  const rijen = soort => [...B.querySelectorAll(`[data-lijst="${soort}"] .rij`)].map(r=>Object.fromEntries([...r.querySelectorAll('[data-k]')].map(e=>[e.dataset.k, e.value.trim()])));
+  R.vensters = rijen('vensters').filter(x=>x.plaats).map(x=>({plaats:x.plaats, soort:x.soort, van: xlTijd(x.van)||'', tot: xlTijd(x.tot)||''}));
+  R.maxPerDag = rijen('maxPerDag').filter(x=>x.plaats && getal(x.aantal)>0).map(x=>({plaats:x.plaats, soort:x.soort, aantal: Math.round(getal(x.aantal))}));
+  R.wagenAfspraken = rijen('wagenAfspraken').filter(x=>x.plaats).map(x=>({kenteken:x.kenteken, plaats:x.plaats, van:x.van.toLowerCase(), tot:x.tot.toLowerCase()}));
+  R.koppels = Object.fromEntries([...B.querySelectorAll('[data-koppel]')].map(e=>[e.dataset.koppel, e.value]));
+  delete R._sjabloon; return R; }
+function vsRegelsFouten(R){ const f = [];
+  if (planTijd(R.start)==null) f.push('Starttijd onjuist.'); if (planTijd(R.eind)==null) f.push('Eindtijd onjuist.'); else if (planTijd(R.eind) <= planTijd(R.start)) f.push('Eindtijd ligt vóór de start.');
+  if (!R.startPlaats || !R.eindPlaats) f.push('Vul start- en eindplaats in.');
+  (R.wagenAfspraken||[]).forEach(a=>{ if (planTijd(a.van)==null || planTijd(a.tot)==null) f.push(`Afspraak ${a.kenteken}: schrijf van/tot als “wo 20:00”.`); });
+  if (!(R.snelheid>0) || !(R.maxRijtijd>0) || !(R.maxDienst>0)) f.push('Snelheid, rijtijd en dienstduur moeten groter dan 0 zijn.'); return f; }
+function vsPlaatsenHtml(R){
+  const nodig = plaatsenNodig(R, vsVracht()); const mist = nodig.filter(p=>!plaatsCoord(p.naam));
+  return `<p class="hint" style="margin:0 0 6px">Afstanden worden geschat uit de ligging (hemelsbreed × ${esc(R.wegfactor)}). Klopt een plaats niet, pas dan de coördinaten aan (bijv. uit Google Maps: rechtermuisknop op de plek).</p>
+    ${mist.length ? `<div class="msg ${S.sample?'warn':'bad'}" style="margin-bottom:6px">${mist.length} plaats${mist.length===1?'':'en'} nog onbekend: ${esc(mist.map(p=>p.naam).join(', '))}. ${S.sample ? '' : 'Vul de coördinaten zelf in.'}</div>${S.sample?`<button class="btn small primary" type="button" id="vs-pl-zoek">Zoek ontbrekende plaatsen op met Claude</button>`:''}` : ''}
+    <div class="scroll" style="margin-top:6px"><table class="staat vs-pl"><thead><tr><th>Plaats</th><th class="n">km vanaf ${esc(R.startPlaats)}</th><th>Breedte (lat)</th><th>Lengte (lon)</th><th>Bron</th></tr></thead><tbody>
+    ${nodig.map(p=>{ const c = plaatsCoord(p.naam); const d = kmSchat(R.startPlaats, p.naam, R);
+      return `<tr class="${c?'':'mist'}"><td>${esc(p.naam)}${c && c.opmerking ? `<small style="display:block;color:var(--muted)">${esc(c.opmerking)}</small>` : ''}</td><td class="n">${d!=null?d:'—'}</td>
+        <td><input data-plat="${esc(p.k)}" data-naam="${esc(p.naam)}" value="${c?esc(c.lat):''}" inputmode="decimal"></td><td><input data-plon="${esc(p.k)}" data-naam="${esc(p.naam)}" value="${c?esc(c.lon):''}" inputmode="decimal"></td>
+        <td>${c ? `<span class="chip ${c.zeker==='laag'?'bad':c.zeker==='middel'?'warn':''}">${esc(c.bron==='handmatig'?'zelf ingevuld':'Claude'+(c.zeker?' · '+c.zeker:''))}</span>` : ''}</td></tr>`; }).join('')}</tbody></table></div>`;
+}
+function vsInvoer(){
+  const wid = vrWeek(); $('#vs-title').textContent = `Planningsvoorstel week ${isoWeek(pWeek).week}`;
+  if (!VS || !VS.regels) VS = { regels: regelsVoorWeek(wid), vragen: (PL.weken[wid]||{}).regelsVragen || [], onbegrepen: (PL.weken[wid]||{}).regelsOnbegrepen || [] };
+  const R = VS.regels; const vc = vsVoorcontrole(R); const af = afsprakenWeek();
+  $('#vs-body').innerHTML = `<p class="lead" style="margin:0">De rekenmotor zet de vrachten in het rooster volgens de regels hieronder en probeert honderden varianten; de beste blijft over. Daarna zie je precies wat past, wat niet en waarom. Er wordt niets ingepland zonder je Akkoord.</p>
+    <div class="vs-blok"><h3>1 · Dit gaat mee</h3><ul style="list-style:none;padding:0">${vc.out.map(([l,t])=>`<li><span class="chip ${l==='ok'?'ok':l==='warn'?'warn':l==='bad'?'bad':''}" style="margin-right:6px">${l==='ok'?'✓':l==='info'?'i':'!'}</span>${esc(t)}</li>`).join('')}</ul></div>
+    <div class="vs-blok"><h3>2 · Regels voor deze week</h3>
+      ${R._sjabloon ? `<p class="hint" style="margin:0 0 6px">Nog niet vastgelegd voor deze week; overgenomen van ${R._sjabloon==='standaard' ? 'de standaardinstelling' : 'week '+Number(R._sjabloon.split('-W')[1])}.</p>` : ''}
+      ${af.length && S.sample ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><button class="btn small primary" type="button" id="vs-regels-lees">Afspraken omzetten met Claude</button><span class="hint" style="margin:0">Claude vult de regels in op basis van je ${af.length} afspraken; jij controleert.</span></div>` : ''}
+      ${VS.vragen.length ? `<div class="msg warn" style="margin-bottom:6px"><b>Claude vraagt:</b><ul style="margin:4px 0 0">${VS.vragen.map(v=>`<li>${esc(v.vraag)}${v.waarom?` <small>(${esc(v.waarom)})</small>`:''}</li>`).join('')}</ul>Pas de regels hieronder aan, of vul de afspraken rechts aan en zet ze opnieuw om.</div>` : ''}
+      ${VS.onbegrepen.length ? `<div class="msg" style="background:var(--sunk);margin-bottom:6px"><b>Niet in regels te vangen</b> (de motor houdt hier geen rekening mee): ${esc(VS.onbegrepen.join(' · '))}</div>` : ''}
+      ${vsRegelsHtml(R)}</div>
+    <div class="vs-blok"><h3>3 · Plaatsen en afstanden</h3><div id="vs-plaatsen">${vsPlaatsenHtml(R)}</div></div>
+    <div id="vs-fout" class="msg bad" hidden></div>`;
+  $('#vs-acties').innerHTML = `<button class="btn primary" type="button" id="vs-reken">Reken de planning door</button><button class="btn" type="button" id="vs-regels-bewaar">Regels bewaren</button>`;
+}
+$('#p-ai').onclick = () => { if (!magMaken()) return; if (VS && VS.rijen){ $('#vs-dlg').showModal(); return vsToon(); } VS = null; vsInvoer(); $('#vs-dlg').showModal(); };
+async function vsBewaarRegels(R){ const wid = vrWeek(); await Store.set('beheer/planning/weken/' + wid, Object.assign({}, PL.weken[wid] || {}, { afspraken: afsprakenWeek(wid), regels: R, regelsVragen: VS.vragen || [], regelsOnbegrepen: VS.onbegrepen || [] })); }
+async function vsRegelsLezen(knop){
+  const af = afsprakenWeek(); if (!af.length || !S.sample) return; VS.regels = vsLeesRegels();
+  knop.disabled = true; knop.textContent = 'Claude leest de afspraken…';
+  const wag = wagens().map(w=>`${w.kenteken} (${(VL.wagen[w.id]||{}).kraan===true?'kraanwagen':(VL.wagen[w.id]||{}).kraan===false?'trailer zonder kraan':'kraan onbekend'})`).join(', ');
+  const plaatsen = [...new Set(vsVracht().flatMap(v=>[v.van, v.naar]))].join(', ');
+  const huidig = Object.assign({}, VS.regels); delete huidig.koppels;
+  const prompt = `Zet de afspraken van de planner van Havas Houttransport om in planningsregels voor week ${isoWeek(pWeek).week} (ma ${fmtDag(pWeek)} t/m za). Wagens: ${wag}. Plaatsen in de vrachten: ${plaatsen || '-'}.
+
+AFSPRAKEN
+${af.map(a=>'- '+a).join('\n')}
+
+HUIDIGE REGELS (pas alleen aan wat de afspraken zeggen, laat de rest staan)
+${JSON.stringify(huidig)}
+
+BETEKENIS VAN DE VELDEN
+start/eind: "ma 05:00" (dag + tijd) wanneer de week begint en uiterlijk klaar is; startPlaats/eindPlaats: waar alle wagens beginnen/eindigen.
+snelheid: gemiddelde km/u. laadUur/losUur: uur per vracht. maxRijtijd: uur rijden per dienst (laden/lossen telt niet). maxDienst: uur per dienst. minRust: uur rust tussen diensten. vroegsteStart: "04:00".
+kraanVerplicht: true als laden alleen kan met een kraanwagen erbij. standaardVenster {van,tot}: laad-/lostijden als niets anders is afgesproken.
+vensters: [{plaats, soort:"laden"|"lossen"|"beide", van:"07:00", tot:"17:00"}]. maxPerDag: [{plaats, soort:"lossen"|"laden", aantal}].
+wagenAfspraken: [{kenteken, plaats, van:"wo 20:00", tot:"do 04:00"}] (wagen staat in die periode op die plaats en rijdt niet).
+leegVermijden: [plaatsen waar zo min mogelijk leeg naartoe gereden moet worden]. maxLatenVallen: aantal vrachten dat mag afvallen, of null.
+Standaard al zo geregeld (niet noemen bij onbegrepen): een kraanwagen neemt zelf ook een vracht mee; trailers lossen zelf; een kraanwagen laadt de trailers die met hem meerijden.
+
+Antwoord met alleen JSON: {"regels":{…alle velden…},"onbegrepen":["afspraak die niet in deze velden past"],"vragen":[{"vraag":"…","waarom":"…"}]}`;
   try{
-    const res = await S.sample.json(vsPrompt(), { modelTier:'complex', signal: vsCtl.signal, cache:false, onText: ({text}) => {
-      tekens = text.length; const n = (text.match(/"ref"\s*:/g)||[]).length; if (n !== ritten){ ritten = n; const el = $('#vs-teller'); if (el) el.textContent = `${n} ritten opgesteld`; } } });
-    const r = res || {};
-    Object.assign(VS, { bezig:false,
-      haalbaar: ['ja','deels','nee'].includes(String(r.haalbaar).toLowerCase()) ? String(r.haalbaar).toLowerCase() : '',
-      samenvatting: String(r.samenvatting || r.algemeen || ''),
-      aanpak: lijstVan(r.aanpak, x=>String(x||'').trim()), aannames: lijstVan(r.aannames, x=>String(x||'').trim()),
-      knelpunten: lijstVan(r.knelpunten, x=> typeof x==='string' ? {ernst:'middel', tekst:x} : (x && x.tekst ? {ernst: String(x.ernst).startsWith('h') ? 'hoog' : 'middel', tekst:String(x.tekst)} : null)),
-      vragen: lijstVan(r.vragen, x=> typeof x==='string' ? {vraag:x, waarom:'', antwoord:''} : (x && x.vraag ? {vraag:String(x.vraag), waarom:String(x.waarom||''), antwoord:''} : null)),
-      niet: lijstVan(r.niet_gepland, x=> x ? {vracht: x.vracht ? String(x.vracht) : '', aantal: Math.max(0, Math.round(Number(x.aantal)||1)), reden: String(x.reden||''), werk: String(x.werk||'')} : null),
-      rijen: lijstVan(r.ritten, vsNorm) });
-    vsToon();
-  }catch(err){
-    const c = err && err.code; VS.bezig = false;
-    const uitleg = c==='cancelled' ? 'Gestopt. Er is niets ingepland.' : c==='not_granted' ? 'Toestemming om Claude te gebruiken is geweigerd.' : c==='rate_limited' ? 'Even te veel verzoeken, of je gebruikslimiet is bereikt. Probeer het later opnieuw.'
-      : c==='invalid_json' ? 'Claude gaf geen bruikbaar antwoord' + (tekens > 20000 ? ': het voorstel werd te lang. Plan in delen (bijv. eerst de vrachten naar één losplaats) of haal vrachten tijdelijk uit de lijst.' : '. Probeer het opnieuw, eventueel met wat meer uitleg.')
-      : 'Het voorstel is mislukt (' + (err && err.message || 'onbekende fout') + '). Probeer het opnieuw.';
-    $('#vs-body').innerHTML = `<ol class="vs-stappen"><li class="ok">Gegevens verzameld</li><li class="fout">${esc(uitleg)}</li></ol>`;
-    $('#vs-acties').innerHTML = `<button class="btn primary" type="button" id="vs-opnieuw">Terug</button>`;
-  }finally{ clearInterval(klok); vsCtl = null; }
+    const res = await S.sample.json(prompt, { modelTier:'default', cache:false });
+    const r = (res && res.regels) || {}; const R = Object.assign({}, VS.regels);
+    ['start','startPlaats','eind','eindPlaats','vroegsteStart'].forEach(k=>{ if (typeof r[k]==='string' && r[k].trim()) R[k] = r[k].trim(); });
+    ['snelheid','laadUur','losUur','maxRijtijd','maxDienst','minRust','wegfactor'].forEach(k=>{ const v = getal(r[k]); if (Number.isFinite(v) && v>0) R[k] = v; });
+    if (r.maxLatenVallen===null || Number.isFinite(getal(r.maxLatenVallen))) R.maxLatenVallen = r.maxLatenVallen===null ? null : Math.round(getal(r.maxLatenVallen));
+    if (typeof r.kraanVerplicht==='boolean') R.kraanVerplicht = r.kraanVerplicht;
+    if (r.standaardVenster && r.standaardVenster.van) R.standaardVenster = { van: xlTijd(r.standaardVenster.van)||'06:00', tot: xlTijd(r.standaardVenster.tot)||'18:00' };
+    if (Array.isArray(r.vensters)) R.vensters = r.vensters.filter(x=>x && x.plaats).map(x=>({plaats:String(x.plaats), soort:['laden','lossen'].includes(x.soort)?x.soort:'beide', van:xlTijd(x.van)||'', tot:xlTijd(x.tot)||''}));
+    if (Array.isArray(r.maxPerDag)) R.maxPerDag = r.maxPerDag.filter(x=>x && x.plaats && getal(x.aantal)>0).map(x=>({plaats:String(x.plaats), soort:x.soort==='laden'?'laden':'lossen', aantal:Math.round(getal(x.aantal))}));
+    if (Array.isArray(r.wagenAfspraken)) R.wagenAfspraken = r.wagenAfspraken.filter(x=>x && x.kenteken && x.plaats).map(x=>{ const w = S.stam.wagens.find(y=>norm(y.kenteken)===norm(x.kenteken)); return {kenteken: w ? w.kenteken : String(x.kenteken).toUpperCase(), plaats:String(x.plaats), van:String(x.van||'').toLowerCase(), tot:String(x.tot||'').toLowerCase()}; });
+    if (Array.isArray(r.leegVermijden)) R.leegVermijden = r.leegVermijden.map(String).filter(Boolean);
+    R.startPlaats = titelCase(R.startPlaats); R.eindPlaats = titelCase(R.eindPlaats); (R.vensters||[]).forEach(x=>x.plaats=titelCase(x.plaats)); (R.maxPerDag||[]).forEach(x=>x.plaats=titelCase(x.plaats)); (R.wagenAfspraken||[]).forEach(x=>x.plaats=titelCase(x.plaats)); R.leegVermijden = (R.leegVermijden||[]).map(titelCase);
+    delete R._sjabloon; VS.regels = R;
+    VS.vragen = Array.isArray(res.vragen) ? res.vragen.filter(v=>v && v.vraag).map(v=>({vraag:String(v.vraag), waarom:String(v.waarom||'')})) : [];
+    VS.onbegrepen = Array.isArray(res.onbegrepen) ? res.onbegrepen.map(String).filter(Boolean) : [];
+    await vsBewaarRegels(R); vsInvoer(); toast('Regels ingevuld uit je afspraken. Controleer ze.');
+  }catch(err){ const c = err && err.code; toast(c==='cancelled' ? 'Gestopt.' : c==='invalid_json' ? 'Claude gaf geen bruikbare regels. Vul ze zelf in of probeer het opnieuw.' : 'Omzetten is niet gelukt. Vul de regels zelf in of probeer het opnieuw.'); knop.disabled = false; knop.textContent = 'Afspraken omzetten met Claude'; }
+}
+async function vsPlaatsenZoeken(knop){
+  VS.regels = vsLeesRegels(); const mist = plaatsenNodig(VS.regels, vsVracht()).filter(p=>!plaatsCoord(p.naam)); if (!mist.length || !S.sample) return;
+  knop.disabled = true; knop.textContent = 'Claude zoekt de plaatsen op…';
+  try{
+    const res = await S.sample.json(`Geef de geografische coördinaten (WGS84) van deze plaatsen. Het gaat om laad- en losplaatsen van een houttransportbedrijf uit Elspeet (Nederland); de meeste liggen in Nederland, België of Duitsland. Noemt een naam twee plaatsen ("A/B"), neem dan A en zeg dat in "opmerking". Twijfel je (meerdere plaatsen met die naam), kies de meest waarschijnlijke voor houttransport vanuit de Veluwe, zet "zeker" op "middel" of "laag" en leg uit in "opmerking".
+Plaatsen:
+${mist.map(p=>'- '+p.naam).join('\n')}
+
+Antwoord met alleen JSON: {"plaatsen":[{"naam":"<precies zoals hierboven>","lat":52.1,"lon":5.6,"land":"NL","zeker":"hoog|middel|laag","opmerking":""}]}`, { modelTier:'default', cache:false });
+    let n = 0;
+    for (const p of (res && Array.isArray(res.plaatsen) ? res.plaatsen : [])){ const m = mist.find(x=>norm(x.naam)===norm(p.naam)) || mist.find(x=>norm(p.naam).startsWith(norm(x.naam))||norm(x.naam).startsWith(norm(p.naam)));
+      const lat = coordGetal(p.lat), lon = coordGetal(p.lon); if (!m || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat)>90 || Math.abs(lon)>180) continue;
+      await Store.set('beheer/planning/plaatsen/' + m.k, { naam: m.naam, lat, lon, land: String(p.land||''), zeker: ['hoog','middel','laag'].includes(p.zeker)?p.zeker:'middel', opmerking: String(p.opmerking||''), bron:'claude', bijgewerkt: new Date().toISOString() });
+      PL.plaatsen[m.k] = { naam: m.naam, lat, lon, zeker: p.zeker, opmerking: String(p.opmerking||''), bron:'claude' }; n++; }
+    $('#vs-plaatsen').innerHTML = vsPlaatsenHtml(VS.regels); toast(`${n} van ${mist.length} plaatsen gevonden.`);
+  }catch(err){ toast('Opzoeken is niet gelukt. Vul de coördinaten zelf in of probeer het opnieuw.'); knop.disabled = false; knop.textContent = 'Zoek ontbrekende plaatsen op met Claude'; }
+}
+$('#vs-body').addEventListener('change', async e => { const t = e.target; if (!VS || VS.rijen) return;
+  const k = t.dataset.plat || t.dataset.plon; if (!k) return;
+  const tr = t.closest('tr'); const lat = coordGetal(tr.querySelector('[data-plat]').value), lon = coordGetal(tr.querySelector('[data-plon]').value);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat)>90 || Math.abs(lon)>180) return;
+  try{ const doc = { naam: t.dataset.naam, lat, lon, bron:'handmatig', zeker:'hoog', opmerking:'', bijgewerkt:new Date().toISOString() }; await Store.set('beheer/planning/plaatsen/' + k, doc); PL.plaatsen[k] = doc; VS.regels = vsLeesRegels(); $('#vs-plaatsen').innerHTML = vsPlaatsenHtml(VS.regels); }catch(err){ toast(errMsg(err)); } });
+$('#vs-body').addEventListener('click', e => { const t = e.target; if (!VS || VS.rijen) return;
+  if (t.id==='vs-regels-lees') return vsRegelsLezen(t);
+  if (t.id==='vs-pl-zoek') return vsPlaatsenZoeken(t);
+  if (t.dataset.erbij){ VS.regels = vsLeesRegels(); const leeg = {vensters:{plaats:'',soort:'beide',van:'07:00',tot:'17:00'}, maxPerDag:{plaats:'',soort:'lossen',aantal:''}, wagenAfspraken:{kenteken:(wagens()[0]||{}).kenteken||'',plaats:'',van:'',tot:''}}[t.dataset.erbij];
+    VS.regels[t.dataset.erbij] = [...(VS.regels[t.dataset.erbij]||[]), leeg]; vsInvoer(); return; }
+  if (t.dataset.weg){ const [soort, i] = t.dataset.weg.split('|'); VS.regels = vsLeesRegels(); VS.regels[soort] = (VS.regels[soort]||[]).filter((_,j)=>j!==Number(i)); vsInvoer(); }
+});
+const lijstVan = (x, f) => Array.isArray(x) ? x.map(f).filter(Boolean) : [];
+let vsStop = false;
+async function vsReken(){
+  const R = vsLeesRegels(); VS.regels = R; const fouten = vsRegelsFouten(R);
+  if (fouten.length){ $('#vs-fout').hidden = false; $('#vs-fout').innerHTML = fouten.map(esc).join('<br>'); return; }
+  const vr = vsVracht(); const open = vr.filter(v=>v.aantal - v.gepland > 0);
+  if (!open.length){ $('#vs-fout').hidden = false; $('#vs-fout').textContent = 'Er zijn geen open vrachten om te plannen.'; return; }
+  const mist = plaatsenNodig(R, vr).filter(p=>!plaatsCoord(p.naam));
+  if (mist.length){ $('#vs-fout').hidden = false; $('#vs-fout').textContent = `Eerst nog de ligging nodig van: ${mist.map(p=>p.naam).join(', ')} (stap 3).`; return; }
+  try{ await vsBewaarRegels(R); }catch{}
+  const kp = koppelsVan(R); const kr = wagens().filter(w=>(VL.wagen[w.id]||{}).kraan===true);
+  const koppels = kr.map(k=>[k.id, ...Object.entries(kp).filter(([,kid])=>kid===k.id).map(([tid])=>tid)]);
+  const plaatsen = {}; plaatsenNodig(R, vr).forEach(p=>{ const c = plaatsCoord(p.naam); plaatsen[norm(p.naam)] = { lat:Number(c.lat), lon:Number(c.lon) }; });
+  const inp = { regels: R, plaatsen, wagens: wagens().map(w=>({id:w.id, kenteken:w.kenteken, kraan:(VL.wagen[w.id]||{}).kraan===true})), koppels: R.kraanVerplicht!==false ? koppels : null,
+    vrachten: open.map(v=>({ id:v.id, ref:v.ref, van:v.van, naar:v.naar, aantal: v.aantal - v.gepland, dag: v.dag||'', wagen: v.wagen||'' })), seed: Date.now() % 100000 };
+  const planner = maakPlanner(inp);
+  if (planner.fout){ $('#vs-fout').hidden = false; $('#vs-fout').textContent = 'Onbekende plaatsen: ' + planner.onbekend.join(', '); return; }
+  const t0 = Date.now(), maxMs = 20000; vsStop = false;
+  $('#vs-body').innerHTML = `<ol class="vs-stappen"><li class="ok">Regels en ${planner.totaal} vrachten klaargezet; ${koppels.length} koppel${koppels.length===1?'':'s'}: ${esc(koppels.map(k=>k.map(waKent).join(' + ')).join(' · '))}</li>
+      <li class="bezig">Varianten doorrekenen… <b id="vs-teller">0</b> · beste tot nu toe: <b id="vs-best">–</b> van ${planner.totaal} vrachten <small id="vs-tijd" style="color:var(--muted)"></small><div class="vs-balk" style="margin-top:6px"><i id="vs-balk" style="width:0%"></i></div></li>
+      <li class="wacht">Controle van het beste resultaat (rijtijd, rust, openingstijden, maxima, afspraken)</li></ol>`;
+  $('#vs-acties').innerHTML = `<button class="btn" type="button" id="vs-stop">Stoppen en beste tonen</button>`;
+  vsCtl = { abort(){ vsStop = true; } };
+  await new Promise(resolve => { const ronde = () => {
+      planner.stap(8); const verstreken = Date.now() - t0;
+      const el = $('#vs-teller'); if (el){ el.textContent = planner.iteraties; $('#vs-best').textContent = planner.beste; $('#vs-tijd').textContent = Math.round(verstreken/1000) + ' s'; $('#vs-balk').style.width = Math.min(100, verstreken/maxMs*100) + '%'; }
+      const klaar = vsStop || verstreken > maxMs || planner.beste >= planner.totaal || (planner.iteraties >= 1500 && planner.sindsVerbetering > 1200);
+      if (klaar) resolve(); else setTimeout(ronde, 0); }; ronde(); });
+  vsCtl = null;
+  const res = planner.resultaat(); vsVanMotor(res, R, open, inp);
+}
+function vsVanMotor(res, R, open, inp){
+  const refs = Object.fromEntries(vsVracht().map(v=>[v.ref, v])); const perId = Object.fromEntries(open.map(v=>[v.id, v]));
+  const T = x => { const d = Math.floor(x/24); return { datum: ymd(addDays(pWeek, d)), tijd: minToTime(Math.round((x - d*24)*60) % 1440) }; };
+  // chauffeurs: vaste chauffeur van de wagen, anders een vrije chauffeur zonder vaste wagen
+  const wagenDagen = {}; res.ritten.forEach(r=>{ (wagenDagen[r.wagen] = wagenDagen[r.wagen] || new Set()).add(T(r.vertrek).datum); (wagenDagen[r.wagen]).add(T(r.losEind).datum); });
+  const bezet = {}; const chVoor = {}; const knelCh = [];
+  const vrij = (cid, dagen) => [...dagen].every(d=>!beschikOp(cid, d).some(b=>b.soort!=='thuis') && !(bezet[cid]||new Set()).has(d));
+  Object.entries(wagenDagen).forEach(([wid, dagen])=>{ const vast = chauffeurs().find(c=>c.wagen===wid);
+    let kies = vast && vrij(vast.id, dagen) ? vast : chauffeurs().filter(c=>!c.wagen && !c.kantoor).sort((a,b)=>contractUren(b.id)-contractUren(a.id)).find(c=>vrij(c.id, dagen));
+    if (kies){ chVoor[wid] = kies.id; dagen.forEach(d=>(bezet[kies.id] = bezet[kies.id] || new Set()).add(d)); }
+    else knelCh.push(`Geen vrije chauffeur gevonden voor ${waKent(wid)}${vast ? ` (${vast.naam} is afwezig op een van de dagen)` : ''}. Kies er zelf een in de tabel.`); });
+  const ritRefs = res.ritten.map((_,i)=>'r'+(i+1));
+  const rijen = res.ritten.map((r,i)=>{ const v = perId[r.vracht]; const a = T(r.vertrek), b = T(r.losEind);
+    const kraanRit = r.kraanWagen !== r.wagen ? res.ritten.findIndex(x=>x.reis===r.reis && x.wagen===r.kraanWagen) : -1;
+    const meerdaags = b.datum !== a.datum;
+    return { ref: ritRefs[i], vracht: v ? v.ref : '', datum: a.datum, uitv:'', derdeNaam:'', wagen: r.wagen, chauffeur: chVoor[r.wagen] || '', start: a.tijd, eind: b.tijd, laad: r.van, los: r.naar,
+      lading: v && LADING.includes(v.lading) ? v.lading : 'Overig', hv:null, eh:'m³', overnachting: meerdaags, meeRef: kraanRit>=0 ? ritRefs[kraanRit] : '',
+      toelichting: `vertrek ${planFmt(r.vertrek)}${r.leegKm?` (${r.leegKm} km leeg)`:''} · laden ${planFmt(r.laadStart)} in ${r.van} · lossen ${planFmt(r.losStart)} in ${r.naar} (${r.geladenKm} km)${meerdaags?' · loopt door tot '+planFmt(r.losEind):''}`,
+      zeker:'hoog', onbekend:[], mee:true }; });
+  const nietTot = res.niet.reduce((t,n)=>t+n.aantal,0);
+  const knel = [];
+  res.voorcontrole.forEach(c=>knel.push({ernst:'hoog', tekst:c.tekst}));
+  res.controle.forEach(c=>knel.push({ernst:'hoog', tekst:'Controle vond een fout: ' + c}));
+  if (R.maxLatenVallen!=null && nietTot > R.maxLatenVallen) knel.push({ernst:'hoog', tekst:`${nietTot} vrachten passen niet; afgesproken is maximaal ${R.maxLatenVallen}. Meer wagens, derden of ruimere tijden zijn nodig.`});
+  knelCh.forEach(t=>knel.push({ernst:'middel', tekst:t}));
+  const onb = wagens().filter(w=>(VL.wagen[w.id]||{}).kraan==null); if (onb.length) knel.push({ernst:'middel', tekst:`Bij ${onb.map(w=>w.kenteken).join(', ')} is niet aangegeven of er een kraan op zit; gerekend als trailer.`});
+  const zw = (VS.onbegrepen||[]); if (zw.length) knel.push({ernst:'middel', tekst:`Niet meegenomen afspraken: ${zw.join(' · ')}`});
+  Object.assign(VS, { refs, rijen, maxVallen: R.maxLatenVallen, haalbaar: !rijen.length ? 'nee' : (nietTot===0 || (R.maxLatenVallen!=null && nietTot<=R.maxLatenVallen)) && !res.controle.length ? 'ja' : 'deels',
+    samenvatting: `${res.gepland} van ${res.totaal} vrachten ingepland${nietTot?`, ${nietTot} niet`:''}${R.maxLatenVallen!=null?` (max. ${R.maxLatenVallen} mag afvallen)`:''}. In totaal ${res.kmTot.toLocaleString('nl-NL')} km, waarvan ${res.leegKm.toLocaleString('nl-NL')} km leeg. ${res.iteraties} varianten doorgerekend.`,
+    aanpak: [ `Koppels: ${res.teams.map(t=>t.join(' + ')).join(' · ')}${res.zonderTeam.length?`; zonder koppel: ${res.zonderTeam.join(', ')}`:''}.`,
+      'Per koppel steeds de volgende vracht(en) gekozen die het snelst klaar zijn met de minste lege kilometers; de kraanwagen laadt eerst de trailer(s), dan zichzelf.',
+      'Losplaatsen met een maximum per dag krijgen voorrang op dagen dat er nog ruimte is; vaste ritten (vaste wagen en dag) worden vrijgehouden.',
+      'Elke rit is getoetst op rijtijd per dienst, dienstduur, rust, laad-/lostijden, maxima per dag, afspraken per wagen en op tijd terug op de eindplaats.',
+      `${res.iteraties} varianten geprobeerd; de variant met de meeste vrachten en daarna de minste lege km is gekozen.` ],
+    aannames: [ `Afstanden geschat: hemelsbreed × ${R.wegfactor} (±10–15%). Pas plaatsen of de factor aan als je betere afstanden hebt.`,
+      `Laad- en lostijden elders ${R.standaardVenster.van}–${R.standaardVenster.tot}, tenzij anders ingesteld.`, `Een dienst start niet vóór ${R.vroegsteStart}; rust ${R.minRust} uur tussen diensten.`,
+      'Trailer en kraanwagen van een koppel rijden samen; lossen gebeurt tegelijk.', 'Chauffeurs: vaste chauffeur van de wagen, anders een vrije chauffeur zonder vaste wagen.' ],
+    knelpunten: knel, vragen: [], niet: res.niet.map(n=>({ vracht: n.ref, aantal: n.aantal, reden: n.redenen.join('; '), werk:'' })), motor: true });
+  vsToon();
 }
 $('#vs-acties').addEventListener('click', async e => {
-  if (e.target.id==='vs-maak') vsMaak();
-  if (e.target.id==='vs-stop' && vsCtl) vsCtl.abort();
-  if (e.target.id==='vs-opnieuw'){ const extra = VS && VS.extra || ''; VS = {extra, qa: VS && VS.qa || []}; vsInvoer(); }
-  if (e.target.id==='vs-ok') vsAkkoord();
-  if (e.target.id==='vs-antwoord') vsAntwoord();
+  const t = e.target;
+  if (t.id==='vs-reken') vsReken();
+  if (t.id==='vs-regels-bewaar'){ try{ const R = vsLeesRegels(); const f = vsRegelsFouten(R); if (f.length){ $('#vs-fout').hidden = false; $('#vs-fout').innerHTML = f.map(esc).join('<br>'); return; } VS.regels = R; await vsBewaarRegels(R); toast('Regels bewaard voor deze week'); vsInvoer(); }catch(err){ toast(errMsg(err)); } }
+  if (t.id==='vs-stop'){ vsStop = true; }
+  if (t.id==='vs-opnieuw'){ const R = VS && VS.regels; VS = { regels: R || regelsVoorWeek(vrWeek()), vragen: VS && VS.vragen || [], onbegrepen: VS && VS.onbegrepen || [] }; vsInvoer(); }
+  if (t.id==='vs-ok') vsAkkoord();
 });
-function vsAntwoord(){
-  if (!VS) return; const open = (VS.vragen||[]).filter(v=>v.antwoord && v.antwoord.trim());
-  if (!open.length) return toast('Vul eerst minstens één antwoord in.');
-  VS.qa = [...(VS.qa||[]), ...open.map(v=>({vraag:v.vraag, antwoord:v.antwoord.trim()}))]; vsMaak(); }
+function vsAntwoord(){}
 function vsAlsRitten(){ // proposal + bestaande ritten → map voor planCheck
   const map = Object.assign({}, S.ritten); const refId = {}; VS.rijen.forEach((r,i)=>{ refId[r.ref||('i'+i)] = '__vs'+i; });
   VS.rijen.forEach((r,i)=>{ if (!r.mee) return; map['__vs'+i] = { datum:r.datum, status:'gepland', uitv: r.uitv, derdeNaam:r.derdeNaam, wagen:r.uitv?'':r.wagen, chauffeur:r.uitv?'':r.chauffeur, start:r.start, eind:r.eind, laad:r.laad, los:r.los, lading:r.lading, hv:r.hv, eh:r.eh, overnachting:r.overnachting, meeMet: r.meeRef && refId[r.meeRef] ? refId[r.meeRef] : null }; });
@@ -3063,7 +3467,8 @@ function vsToon(){
   const dk = vsDekking();
   // eigen oordeel naast dat van Claude
   const telFout = dk.rows.filter(r=>r.rest !== 0);
-  const oordeel = !VS.rijen.length ? 'nee' : (fouten || dk.niet || telFout.length) ? (VS.haalbaar==='nee' ? 'nee' : 'deels') : (VS.haalbaar || 'ja');
+  const binnenUitval = VS.maxVallen!=null && dk.niet <= VS.maxVallen;
+  const oordeel = !VS.rijen.length ? 'nee' : (fouten || telFout.length || (dk.niet && !binnenUitval)) ? (VS.haalbaar==='nee' ? 'nee' : 'deels') : (VS.motor ? VS.haalbaar : (VS.haalbaar || 'ja'));
   const knel = [...VS.knelpunten];
   if (fouten) knel.unshift({ernst:'hoog', tekst:`${fouten} rit${fouten===1?'':'ten'} overtreden een planregel (rood in de tabel). Pas ze aan of vink ze uit.`});
   const tekort = telFout.filter(r=>r.rest>0), teveel = telFout.filter(r=>r.rest<0);
@@ -3089,14 +3494,14 @@ function vsToon(){
   const woord = {ja:'Past', deels:'Past deels', nee:'Past niet'}[oordeel];
   $('#vs-body').innerHTML = `
     <div class="vs-oordeel ${oordeel}"><b class="groot">${woord}</b>
-      <span>${dk.rows.length ? `${dk.voorstel} van ${dk.gevraagd} vracht${dk.gevraagd===1?'':'en'} ingepland${dk.niet?`, ${dk.niet} niet`:''}` : `${VS.rijen.length} rit${VS.rijen.length===1?'':'ten'} voorgesteld`}${fouten?` · <b>${fouten} met overtreden regel</b>`:''}</span>
-      ${VS.haalbaar && VS.haalbaar!==oordeel ? `<small style="color:var(--muted)">(Claude zei: ${esc(VS.haalbaar)}; de controle hierboven telt zelf na)</small>` : ''}</div>
+      <span>${dk.rows.length ? `${dk.voorstel} van ${dk.gevraagd} vracht${dk.gevraagd===1?'':'en'} ingepland${dk.niet?`, ${dk.niet} niet${binnenUitval?` (mag: max. ${VS.maxVallen})`:''}`:''}` : `${VS.rijen.length} rit${VS.rijen.length===1?'':'ten'} voorgesteld`}${fouten?` · <b>${fouten} met overtreden regel</b>`:''}</span>
+      ${!VS.motor && VS.haalbaar && VS.haalbaar!==oordeel ? `<small style="color:var(--muted)">(Claude zei: ${esc(VS.haalbaar)}; de controle hierboven telt zelf na)</small>` : ''}</div>
     ${VS.samenvatting ? `<div class="msg" style="background:var(--sunk);font-size:13px">${esc(VS.samenvatting)}</div>` : ''}
     ${knel.length ? `<div class="vs-blok"><h3>Waar het op vastloopt</h3><div style="display:grid;gap:4px">${knel.map(k=>`<div class="msg ${k.ernst==='hoog'?'bad':'warn'}">${esc(k.tekst)}</div>`).join('')}</div></div>` : ''}
     ${VS.vragen.length ? `<div class="vs-blok"><h3>Claude heeft informatie nodig</h3><div style="display:grid;gap:6px">${VS.vragen.map((v,i)=>`<label class="vs-vraag"><span><b>${esc(v.vraag)}</b>${v.waarom?` <small>${esc(v.waarom)}</small>`:''}</span><input data-vraag="${i}" value="${esc(v.antwoord||'')}" placeholder="Jouw antwoord"></label>`).join('')}</div>
       <div style="margin-top:6px"><button class="btn small primary" type="button" id="vs-antwoord-knop">Beantwoord en plan opnieuw</button> <span class="hint">Tot die tijd plant Claude met de aannames hieronder.</span></div></div>` : ''}
     ${VS.aannames.length ? `<div class="vs-blok"><h3>Aannames</h3><ul>${VS.aannames.map(a=>`<li>${esc(a)}</li>`).join('')}</ul></div>` : ''}
-    ${VS.aanpak.length ? `<details class="vs-blok"><summary><b>Zo heeft Claude het aangepakt</b></summary><ul style="margin-top:6px">${VS.aanpak.map(a=>`<li>${esc(a)}</li>`).join('')}</ul></details>` : ''}
+    ${VS.aanpak.length ? `<details class="vs-blok"><summary><b>Zo is gerekend</b></summary><ul style="margin-top:6px">${VS.aanpak.map(a=>`<li>${esc(a)}</li>`).join('')}</ul></details>` : ''}
     ${dk.rows.length ? `<div class="vs-blok"><h3>Per vracht</h3><div class="scroll"><table class="staat" style="font-size:12.5px"><thead><tr><th>Vracht</th><th>Route</th><th class="n">Te plannen</th><th class="n">In voorstel</th><th class="n">Niet gepland</th><th>Reden</th></tr></thead><tbody>
       ${dk.rows.map(r=>`<tr style="background:var(--${r.rest!==0?'bad-soft':r.niet?'warn-soft':'ok-soft'})"><td><b>${esc(r.v.ref)}</b></td><td>${esc(r.v.van)} → ${esc(r.v.naar)}${r.v.dag?` (${esc(DAGNAAM[r.v.dag])})`:''}</td><td class="n">${r.gevraagd}</td><td class="n">${r.voorstel}</td><td class="n">${r.niet||''}</td><td>${esc(VS.niet.filter(n=>n.vracht===r.v.ref).map(n=>n.reden).filter(Boolean).join('; '))}${r.rest>0?` <span style="color:var(--bad)">${r.rest} nergens genoemd</span>`:''}</td></tr>`).join('')}
       ${VS.niet.filter(n=>!n.vracht || !VS.refs[n.vracht]).map(n=>`<tr style="background:var(--warn-soft)"><td>—</td><td>${esc(n.werk)}</td><td></td><td></td><td class="n">${n.aantal}</td><td>${esc(n.reden)}</td></tr>`).join('')}
@@ -3104,10 +3509,10 @@ function vsToon(){
     ${VS.rijen.length ? `<div class="vs-blok"><h3>Ritten (${VS.rijen.length})</h3><p class="hint" style="margin:0 0 6px">Groen = zeker, geel = controleren, rood = regel overtreden of onzeker. Pas aan waar nodig; ritten zonder vinkje worden niet ingepland. Na Akkoord kun je alles nog wijzigen in de stand Wijzigen.</p>
     <div class="scroll"><table class="staat ocr" style="min-width:1320px"><thead><tr><th>Mee</th><th>Vracht</th><th>Datum</th><th>Uitvoerder</th><th>Wagen</th><th>Chauffeur</th><th>Vertrek</th><th>Klaar</th><th>Laadadres</th><th>Losadres</th><th>Lading</th><th>Overn.</th><th>Samen</th><th>Toelichting / regels</th></tr></thead><tbody>${VS.rijen.map(rij).join('')}</tbody></table></div></div>` : ''}`;
   $('#vs-body').style.zoom = ocrZoom/100;
-  $('#vs-acties').innerHTML = `${VS.rijen.length ? `<button class="btn primary" type="button" id="vs-ok">Akkoord, zet in planning</button>` : ''}${VS.vragen.length ? `<button class="btn" type="button" id="vs-antwoord">Beantwoord en plan opnieuw</button>` : ''}<button class="btn" type="button" id="vs-opnieuw">Opnieuw beginnen</button>`;
+  $('#vs-acties').innerHTML = `${VS.rijen.length ? `<button class="btn primary" type="button" id="vs-ok">Akkoord, zet ${VS.rijen.filter(r=>r.mee).length} ritten in planning</button>` : ''}<button class="btn" type="button" id="vs-opnieuw">Regels aanpassen en opnieuw rekenen</button>`;
 }
 $('#vs-body').addEventListener('input', e => { if (!VS || e.target.dataset.vraag == null) return; VS.vragen[Number(e.target.dataset.vraag)].antwoord = e.target.value; });
-$('#vs-body').addEventListener('click', e => { if (e.target.id==='vs-antwoord-knop') vsAntwoord(); });
+
 $('#vs-body').addEventListener('change', e => { if (!VS) return; const tr = e.target.closest('tr[data-i]'); if (!tr) return; const r = VS.rijen[Number(tr.dataset.i)]; const f = e.target.dataset.f; if (!f) return;
   if (f==='mee') r.mee = e.target.checked; else if (f==='overnachting') r.overnachting = e.target.value==='ja';
   else if (f==='vracht') r.vracht = e.target.value;
@@ -3540,7 +3945,8 @@ TABBLAD PLANNING
 - Weekrooster: een rij per wagen (🏗 = autolaadkraan), daaronder rijen per derde partij (charters) en voor beheerders een rij Beschikbaarheid. 🌙 = overnachting, ⛓ = rijdt samen met (kraanwagen), "vast" = vaste rit.
 - Rit maken (stand Maken): klik op een leeg vak of "Nieuwe rit". Velden: datum, status, uitgevoerd door (eigen vloot of een derde, met tarief), wagen, chauffeur, vertrek, klaar, laad- en losadres, lading, hoeveelheid, "Rijdt samen met (kraanwagen)", "Overnachting na deze rit", opmerking. "Tijden naar urenstaat" zet de rittijden in de weekstaat.
 - Vrachten (rechts naast het rooster, beheerders): per week de lijst met vrachten. In de stand Maken typ of plak je de vrachten in gewone zinnen, bijv. "10 vrachten hout van Bawinkel naar Uddel" of "1 vracht hout van Putten naar Enschede door 29-BZN-3 op woensdag". "Inlezen en controleren" toont een controletabel (groen zeker, geel controleren, rood aanvullen) met aantal, omschrijving, lading, laden in, lossen in, dag, wagen en opmerking; zinnen zonder vracht (bijv. "elke dag maximaal 6 vrachten lossen in Uddel") worden bewaard als afspraken van die week. Per vracht zie je "gepland/gevraagd" met een balk: telt ritten die bij de vracht horen (veld "Hoort bij vracht" in de rit) en losse ritten met dezelfde laad- en losplaats. Onder de lijst: afspraken, wagens met/zonder kraan en afwezigheid. Knoppen Wijzig en × per vracht; "+ Vracht" voegt er één los toe.
-- Planningsvoorstel (Claude): gebruikt de vrachtenlijst, de afspraken, de planregels en wat al in het rooster staat. Vooraf "Dit gaat mee" (controle: aantal vrachten, wagens met kraan/trailer, ontbrekende kraan-instelling, afspraken). Tijdens het plannen zie je de stappen en hoeveel ritten al zijn opgesteld (knop Stoppen). Daarna: oordeel Past / Past deels / Past niet (zelf nageteld per vracht), "Waar het op vastloopt" (te veel vrachten, regels, vrachten die nergens genoemd zijn), "Claude heeft informatie nodig" (vragen met invulvak; "Beantwoord en plan opnieuw"), aannames, "Zo heeft Claude het aangepakt", tabel Per vracht (te plannen / in voorstel / niet gepland met reden) en de ritten met kleur. Na Akkoord worden de ritten aan de vracht gekoppeld.
+- Planningsvoorstel (rekenmotor, ook voor 100+ vrachten): stap 1 "Dit gaat mee", stap 2 "Regels voor deze week" (start/eind dag-tijd-plaats, snelheid, laden/lossen per vracht, max. rijtijd per dienst, max. dienst, rust, vroegste start, standaard laad-/lostijden, max. laten vallen, wegfactor, laden alleen met kraan; lijsten: laad-/lostijden per plaats, maximum per dag per plaats, wagen moet op een plaats staan van–tot, zo min mogelijk leeg naar; koppels trailer → kraanwagen). Knop "Afspraken omzetten met Claude" vult de regels uit de afspraken; Claude meldt vragen en wat niet in regels past. Regels worden per week bewaard; een nieuwe week neemt die van de vorige over (zonder wagenafspraken). Stap 3 "Plaatsen en afstanden": ligging per plaats (Claude zoekt ontbrekende op, of zelf invullen) en km vanaf de start. "Reken de planning door" probeert honderden varianten (max. 20 s, knop Stoppen) en kiest de variant met de meeste vrachten en dan de minste lege km. Elke rit wordt gecontroleerd op rijtijd, dienstduur, rust, openingstijden, maxima per dag, wagenafspraken en op tijd terug. Daarna: oordeel, samenvatting (km, leeg), knelpunten (o.a. onvermijdelijk tekort door losmaximum), per vracht met reden waarom iets niet past, en de ritten (chauffeur = vaste chauffeur van de wagen, anders een vrije chauffeur).
+- Planningsvoorstel (oude uitleg, nog geldig voor de beoordeling): gebruikt de vrachtenlijst, de afspraken, de planregels en wat al in het rooster staat. Vooraf "Dit gaat mee" (controle: aantal vrachten, wagens met kraan/trailer, ontbrekende kraan-instelling, afspraken). Tijdens het plannen zie je de stappen en hoeveel ritten al zijn opgesteld (knop Stoppen). Daarna: oordeel Past / Past deels / Past niet (zelf nageteld per vracht), "Waar het op vastloopt" (te veel vrachten, regels, vrachten die nergens genoemd zijn), "Claude heeft informatie nodig" (vragen met invulvak; "Beantwoord en plan opnieuw"), aannames, "Zo heeft Claude het aangepakt", tabel Per vracht (te plannen / in voorstel / niet gepland met reden) en de ritten met kleur. Na Akkoord worden de ritten aan de vracht gekoppeld.
 - Planregels (knop, beheerders) met vier onderdelen: Wagens & lading (per ladingtype of laden een kraan vraagt; per wagen autolaadkraan ja/nee en voor welke lading geschikt), Beschikbaarheid (chauffeur vrij, vakantie, ziek, opleiding, of "moet thuis slapen" van/tot; met "Herhaal elke week" geldt het elke week op dezelfde dag(en) vanaf de begindatum, bijv. elke woensdag thuis slapen), Vaste ritten (terugkerend werk per weekdag), Derden (charters met standaard tarief).
 - Controles: rode rand = regel overtreden (chauffeur of wagen dubbel geboekt, wagen niet geschikt voor de lading, lading vraagt kraan maar wagen heeft er geen en is niet gekoppeld aan een kraanwagen, chauffeur afwezig, overnachting terwijl chauffeur thuis moet slapen). Gele rand = controleren (dienst langer dan 15 uur, laadadres wijkt af van kraanwagen, enz.). Alle meldingen staan onder het rooster; klik erop om de rit te openen.
 - Excel: kies in de keuzelijst naast de weekknoppen "alle ritten", een kenteken, een chauffeur of een derde en klik Excel; je krijgt de ritten van de getoonde week (tabblad Ritten) en een rooster per dag (tabblad Rooster).
