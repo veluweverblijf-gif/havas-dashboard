@@ -43,7 +43,7 @@ Implements those capabilities on Supabase:
 | `beheer/nmbrs` | Nmbrs export settings |
 | `beheer/backup` | backup e-mail and status |
 | `beheer/kostprijs` | cost-price settings |
-| `beheer/planning` | planning rules; sub-collections `beschik`, `vast` |
+| `beheer/planning` | planning rules `{kraanNodig, derden[], openingstijden[{plaats, soort, dagen[], van, tot}]}`; sub-collections `beschik`, `vast` |
 | `beheer/planning/vrachten/<id>` | order book per week `{week, aantal, soort, lading, van, naar, dag, wagen, opm, volgorde}`; rides link via `ritten/<id>.vrachtId` |
 | `beheer/planning/weken/<jaar-Wnn>` | `{afspraken[], regels{…}, regelsVragen[], regelsOnbegrepen[]}`: free-text constraints and the structured rules the planning engine uses |
 | `beheer/planning/plaatsen/<norm naam>` | `{naam, lat, lon, zeker, bron:'claude'|'handmatig'}`: place coordinates for distance estimates |
@@ -57,7 +57,7 @@ The planningsvoorstel no longer asks Claude to write the whole schedule; that do
   - 45 min pause after 4.5 u driving, and after 6 u work (driving + loading/unloading); a wait of 45 min or more counts as a pause;
   - daily rest 11 u, or 9 u three times a week (duty max 13 u or 15 u);
   - 56 u driving and 60 u working time per week.
-- It also respects: vroegste start, laad/los windows per place, max per day per place, wagen appointments (place from–to), fixed day/wagen per load, and being back at the end place.
+- It also respects: vroegste start, laad/los windows per place and per day (fixed ones in Planregels → Laad- en lostijden; week-specific ones take precedence; days not listed = closed), max per day per place, wagen appointments (place from–to), fixed day/wagen per load, and being back at the end place.
 - Every day drivers keep going until their driving/working time is used up, except that the week ends at a fixed moment. The default is `eind: 'vr 15:30'` (owner's wish: Friday 15:30 back in Uddel). `eind: 'vr'` without a time is possible, but only if the owner asks for it.
 - It keeps the best of hundreds of variants: most loads first, then fewest empty km.
 - An independent validator re-checks the winning schedule.

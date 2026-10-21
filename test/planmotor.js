@@ -38,9 +38,11 @@
       leegVermijden: (R0.leegVermijden || []).map(nrm),
     };
     R.maxDienst = 24 - R.minRust; R.maxDienstVerkort = 24 - R.verkortRust;
-    const vensters = {}; (R0.vensters || []).forEach(v => { const k = nrm(v.plaats); const s = v.soort || 'beide';
-      const w = { van: uurVan(v.van) ?? R.std.van, tot: uurVan(v.tot) ?? R.std.tot };
-      if (s === 'laden' || s === 'beide') vensters[k + '|laden'] = w; if (s === 'lossen' || s === 'beide') vensters[k + '|lossen'] = w; });
+    // laad-/lostijden per plaats, eventueel per dag; eerste passende regel telt (weekregels vóór vaste tijden)
+    const vensters = {}; (R0.vensters || []).forEach(v => { if (!v || !v.plaats) return; const k = nrm(v.plaats); const s = v.soort || 'beide';
+      const dagen = Array.isArray(v.dagen) && v.dagen.length ? new Set(v.dagen.map(d => DAG.indexOf(String(d).slice(0, 2).toLowerCase())).filter(i => i >= 0)) : null;
+      const w = { van: uurVan(v.van) ?? R.std.van, tot: uurVan(v.tot) ?? R.std.tot, dagen };
+      ['laden', 'lossen'].forEach(x => { if (s === x || s === 'beide') (vensters[k + '|' + x] = vensters[k + '|' + x] || []).push(w); }); });
     const caps = {}; (R0.maxPerDag || []).forEach(c => { caps[nrm(c.plaats) + '|' + (c.soort || 'lossen')] = Number(c.aantal); });
     const plaatsInfo = inp.plaatsen || {};
     const coord = naam => { const p = plaatsInfo[nrm(naam)] || plaatsInfo[naam]; return p && Number.isFinite(p.lat) && Number.isFinite(p.lon) ? p : null; };
@@ -56,11 +58,14 @@
           d = Math.round(2 * 6371 * Math.asin(Math.sqrt(h)) * R.wegfactor); } }
       kmCache.set(key, d); return d;
     }
-    const venster = (plaats, soort) => vensters[nrm(plaats) + '|' + soort] || R.std;
-    function openOp(plaats, soort, t) { // eerstvolgend moment >= t dat de plaats open is
-      const w = venster(plaats, soort); let d = Math.floor(t / 24), h = t - d * 24;
-      if (h < w.van) return d * 24 + w.van; if (h >= w.tot) return (d + 1) * 24 + w.van; return t; }
-    const sluitOp = (plaats, soort, t) => { const w = venster(plaats, soort); return Math.floor(t / 24) * 24 + w.tot; };
+    function venster(plaats, soort, dag) { // venster op dag (0 = ma) of null als gesloten
+      const lijst = vensters[nrm(plaats) + '|' + soort]; if (!lijst) return R.std;
+      return lijst.find(w => !w.dagen || w.dagen.has(((dag % 7) + 7) % 7)) || null; }
+    function openOp(plaats, soort, t) { // eerstvolgend moment >= t dat de plaats open is (Infinity als nooit)
+      for (let k = 0; k < 8; k++) { const d = Math.floor(t / 24) + k; const w = venster(plaats, soort, d); if (!w) continue;
+        const s = k === 0 ? Math.max(t, d * 24 + w.van) : d * 24 + w.van; if (s < d * 24 + w.tot - 1e-9) return s; }
+      return Infinity; }
+    const sluitOp = (plaats, soort, t) => { const d = Math.floor(t / 24); const w = venster(plaats, soort, d); return w ? d * 24 + w.tot : t; };
 
 
     /* ---- klok volgens rij- en rusttijden: st = {t,pos,dStart,rij,rijSP,werkSP,weekRij,weekWerk,verlengd,verkort,legs,km,leeg}
@@ -129,8 +134,8 @@
     Object.entries(caps).forEach(([k, n]) => { const [p, soort] = k.split('|');
       const vraag = vrachten.filter(v => nrm(soort === 'lossen' ? v.naar : v.van) === p).reduce((t, v) => t + v.aantal, 0);
       const naam = (vrachten.find(v => nrm(soort === 'lossen' ? v.naar : v.van) === p) || {})[soort === 'lossen' ? 'naar' : 'van'] || p;
-      const max = n * dagen.length; if (vraag > max) voorcontrole.push({ soort: 'capaciteit', plaats: naam, actie: soort, vraag, max, tekort: vraag - max,
-        tekst: `${vraag} vrachten ${soort} in ${naam}, maar maximaal ${n} per dag × ${dagen.length} dagen = ${max}: minstens ${vraag - max} passen niet.` }); });
+      const open = dagen.filter(d => venster(naam, soort, d)).length; const max = n * open; if (vraag > max) voorcontrole.push({ soort: 'capaciteit', plaats: naam, actie: soort, vraag, max, tekort: vraag - max,
+        tekst: `${vraag} vrachten ${soort} in ${naam}, maar maximaal ${n} per dag × ${open} dagen = ${max}: minstens ${vraag - max} passen niet.` }); });
     if (R.kraanVerplicht && !wagens.some(w => w.kraan)) voorcontrole.push({ soort: 'kraan', tekst: 'Er is geen enkele kraanwagen; niets kan worden geladen.' });
     vrachten.forEach(v => { if (v.wagen && !wagens.some(w => w.id === v.wagen)) voorcontrole.push({ soort: 'wagen', tekst: `${v.ref}: de vaste wagen bestaat niet.` }); });
 
@@ -149,11 +154,11 @@
         const st = vanTeam(team); const capLokaal = {};
         const plek = (soort, dur, n) => { // laden/lossen op st.pos; n = aantal vrachten (voor maximum per dag)
           for (let poging = 0; poging < 6; poging++) {
-            const s0 = openOp(st.pos, soort, st.t);
-            if (s0 + dur > sluitOp(st.pos, soort, s0) + 1e-9) { wacht(st, Math.floor(s0 / 24) * 24 + 24 + venster(st.pos, soort).van); continue; }
+            const s0 = openOp(st.pos, soort, st.t); if (!Number.isFinite(s0)) return `${soort} in ${st.pos}: geen laad-/lostijd in de week`;
+            if (s0 + dur > sluitOp(st.pos, soort, s0) + 1e-9) { const n2 = openOp(st.pos, soort, Math.floor(s0 / 24) * 24 + 24); if (!Number.isFinite(n2)) return `${soort} in ${st.pos} past niet binnen de laad-/lostijden`; wacht(st, n2); continue; }
             const ck = nrm(st.pos) + '|' + soort; const dag = Math.floor(s0 / 24);
             if (caps[ck] != null && (capTel[ck + '|' + dag] || 0) + (capLokaal[ck + '|' + dag] || 0) + n > caps[ck]) {
-              if (poging === 5) return `${soort} in ${st.pos} vol (max ${caps[ck]} per dag)`; wacht(st, (dag + 1) * 24 + venster(st.pos, soort).van); continue; }
+              const n2 = openOp(st.pos, soort, (dag + 1) * 24); if (poging === 5 || !Number.isFinite(n2)) return `${soort} in ${st.pos} vol (max ${caps[ck]} per dag)`; wacht(st, n2); continue; }
             wacht(st, s0);
             if (st.t - st.dStart + dur > spanCap(st) + 1e-9) { nieuweDienst(st); continue; }
             if (st.werkSP + dur > R.werkVoorPauze + 1e-9 && st.werkSP > 0) { if (st.t - st.dStart + R.pauzeDuur + dur > spanCap(st) + 1e-9) { nieuweDienst(st); continue; } pauze(st); continue; }
@@ -174,7 +179,7 @@
         if (st.t > R.eindT) return { ok: false, reden: 'past niet meer in de week' };
         // vaste ritten (vaste wagen + vaste dag) van dit koppel moeten bereikbaar blijven
         for (const v of vrachten) { if (!v.wagen || v.dag < 0 || rest[v.id] <= 0 || !team.leden.some(w => w.id === v.wagen) || job.lading.some(l => l.vracht === v)) continue;
-          const deadline = v.dag * 24 + venster(v.van, 'laden').tot - R.laadU; if (start <= deadline && aankomst(st, v.van) > deadline + 1e-9) return { ok: false, reden: `vaste rit ${v.ref} op ${DAG[v.dag]} komt in gevaar` }; }
+          const wv = venster(v.van, 'laden', v.dag); const deadline = wv ? v.dag * 24 + wv.tot - R.laadU : v.dag * 24; if (start <= deadline && aankomst(st, v.van) > deadline + 1e-9) return { ok: false, reden: `vaste rit ${v.ref} op ${DAG[v.dag]} komt in gevaar` }; }
         for (const a of team.afspr) { if (start >= a.tot) continue;
           if (aankomst(st, a.plaats) > a.van + 1e-9) return { ok: false, reden: `afspraak: ${a.kenteken} moet ${fmt(a.van)} in ${a.plaats} staan` }; }
         // daarna nog op tijd op de eindplaats (binnen de rij- en werktijden)?
@@ -283,8 +288,8 @@
           if (l.soort === 'rij') { if (nrm(l.van) !== nrm(pos) && !l._deel) { /* deelstuk van een lange rit: positie onderweg */ }
             const u = l.eind - l.start; cur.rij += u; rijAaneen += u; werkAaneen += u; weekRij += u; weekWerk += u; if (l.laatste !== false) pos = l.naar;
             if (rijAaneen > R.pauzeNa + 1e-6) controle.push(`${naam}: ${rijAaneen.toFixed(2)} u aaneen gereden zonder pauze (${fmt(l.eind)})`); }
-          else if (l.soort === 'laden' || l.soort === 'lossen') { const w = venster(l.plaats, l.soort), h = l.start - Math.floor(l.start / 24) * 24;
-            if (h < w.van - 1e-6 || h + (l.eind - l.start) > w.tot + 1e-6) controle.push(`${naam}: ${l.soort} in ${l.plaats} om ${fmt(l.start)} buiten openingstijd`);
+          else if (l.soort === 'laden' || l.soort === 'lossen') { const w = venster(l.plaats, l.soort, Math.floor(l.start / 24)), h = l.start - Math.floor(l.start / 24) * 24;
+            if (!w || h < w.van - 1e-6 || h + (l.eind - l.start) > w.tot + 1e-6) controle.push(`${naam}: ${l.soort} in ${l.plaats} om ${fmt(l.start)} buiten openingstijd`);
             if (nrm(l.plaats) !== nrm(pos)) controle.push(`${naam}: ${l.soort} in ${l.plaats} maar staat in ${pos}`);
             const u = l.eind - l.start; werkAaneen += u; weekWerk += u; }
           if (werkAaneen > R.werkVoorPauze + 1e-6) controle.push(`${naam}: ${werkAaneen.toFixed(2)} u aaneen gewerkt zonder pauze (${fmt(l.eind)})`);

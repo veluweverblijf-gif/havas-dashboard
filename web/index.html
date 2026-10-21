@@ -706,6 +706,7 @@ dialog::backdrop{background:rgba(10,14,11,.5)}
     <button type="button" data-pr="beschik" aria-selected="false">Beschikbaarheid</button>
     <button type="button" data-pr="vast" aria-selected="false">Vaste ritten</button>
     <button type="button" data-pr="derden" aria-selected="false">Derden</button>
+    <button type="button" data-pr="tijden" aria-selected="false">Laad- en lostijden</button>
   </div>
   <div id="pr-body" style="display:grid;gap:12px"></div>
 </div></dialog>
@@ -2657,7 +2658,23 @@ $('#r-touren').onclick = async () => {
 
 /* ---- planregels ---- */
 let prTab = 'wagens', prVastEdit = null;
-async function prBewaarInst(){ await Store.set('beheer/planning', {kraanNodig: PL.inst.kraanNodig, derden: PL.inst.derden}); }
+/* vaste laad- en lostijden per plaats (gelden elke week; per week aan te vullen in het planningsvoorstel) */
+const DAGEN_KORT = ['ma','di','wo','do','vr','za'];
+const OPENINGSTIJDEN_STD = [
+  {id:'o1', plaats:'Uddel', soort:'beide', dagen:['ma','di','wo','do'], van:'07:00', tot:'17:00'},
+  {id:'o2', plaats:'Uddel', soort:'beide', dagen:['vr'], van:'07:00', tot:'16:00'},
+  {id:'o3', plaats:'Barneveld', soort:'laden', dagen:['ma','di','wo','do','vr'], van:'06:30', tot:'17:00'},
+  {id:'o4', plaats:'Daarlerveen', soort:'beide', dagen:['ma','di','wo','do','vr'], van:'07:00', tot:'18:00'} ];
+const openingstijden = () => Array.isArray(PL.inst.openingstijden) ? PL.inst.openingstijden : OPENINGSTIJDEN_STD;
+function dagenTekst(d){ d = (d||[]).filter(x=>DAGEN_KORT.includes(x)); if (!d.length || d.length===6) return 'elke dag';
+  const i = d.map(x=>DAGEN_KORT.indexOf(x)).sort((a,b)=>a-b); const aaneen = i.every((x,j)=>j===0 || x===i[j-1]+1);
+  return aaneen && i.length>2 ? `${DAGEN_KORT[i[0]]} t/m ${DAGEN_KORT[i[i.length-1]]}` : i.map(x=>DAGEN_KORT[x]).join(', '); }
+function dagenVan(tekst){ const t = String(tekst||'').toLowerCase().replace(/\s+/g,' ').trim(); if (!t || /elke|alle|hele week/.test(t)) return [];
+  const uit = new Set(); t.split(/[,;]| en (?!met)/).forEach(deel => { const m = deel.match(/(ma|di|wo|do|vr|za)\w*\s*(?:-|–|t\/m|tm|tot en met|tot)\s*(ma|di|wo|do|vr|za)/);
+    if (m){ for (let k = DAGEN_KORT.indexOf(m[1]); k <= DAGEN_KORT.indexOf(m[2]); k++) uit.add(DAGEN_KORT[k]); }
+    else (deel.match(/\b(ma|di|wo|do|vr|za)\w*/g)||[]).forEach(x=>uit.add(x.slice(0,2))); });
+  return DAGEN_KORT.filter(d=>uit.has(d)); }
+async function prBewaarInst(){ await Store.set('beheer/planning', Object.assign({}, PL.inst, {kraanNodig: PL.inst.kraanNodig, derden: PL.inst.derden || [], openingstijden: openingstijden()})); }
 function renderPlanregels(){
   if (!$('#pr-dlg').open) return;
   document.querySelectorAll('#pr-tabs [data-pr]').forEach(b=>b.setAttribute('aria-selected', String(b.dataset.pr===prTab)));
@@ -2694,6 +2711,20 @@ function renderPlanregels(){
         <button class="btn primary" type="submit">${prVastEdit?'Wijziging opslaan':'Vaste rit toevoegen'}</button>${prVastEdit?'<button class="btn" type="button" id="prv-annuleer">Annuleren</button>':''}
       </form>
       <div class="scroll"><table class="pr-tabel"><thead><tr><th>Naam</th><th>Dagen</th><th>Uitvoerder</th><th>Tijd</th><th>Route</th><th>Lading</th><th>Actief</th><th></th></tr></thead><tbody>${lijst.map(x=>`<tr><td>${esc(x.naam)}</td><td>${(x.dagen||[]).join(' ')}</td><td>${x.uitv?esc((derdeVan(x.uitv)||{}).naam||'derde'):esc((x.wagen?waKent(x.wagen):'—')+' · '+(x.chauffeur?chNaam(x.chauffeur):'—'))}</td><td>${esc(x.start||'')}–${esc(x.eind||'')}</td><td>${esc(x.laad||'')} → ${esc(x.los||'')}</td><td>${esc(x.lading||'')}</td><td>${x.actief!==false?'ja':'nee'}</td><td style="white-space:nowrap"><button class="btn small" type="button" data-prvedit="${esc(x.id)}">Wijzig</button> <button class="btn small danger" type="button" data-prvdel="${esc(x.id)}">×</button></td></tr>`).join('') || '<tr><td colspan="8" style="color:var(--muted)">Nog geen vaste ritten.</td></tr>'}</tbody></table></div>`;
+  } else if (prTab==='tijden'){
+    const lijst = openingstijden();
+    B.innerHTML = `<p class="lead" style="margin:0">Vaste laad- en lostijden per plaats. Ze gelden elke week voor het planningsvoorstel; op dagen die niet zijn aangevinkt is de plaats dicht voor laden of lossen. Plaatsen die hier niet staan: de standaardtijden uit het planningsvoorstel (normaal 06:00–18:00).</p>
+      <div class="scroll"><table class="pr-tabel"><thead><tr><th>Plaats</th><th>Wat</th><th>Dagen</th><th>Van</th><th>Tot</th><th></th></tr></thead><tbody>
+      ${lijst.length ? lijst.map(o=>`<tr><td><b>${esc(o.plaats)}</b></td><td>${esc(o.soort==='beide'?'laden en lossen':o.soort)}</td><td>${esc(dagenTekst(o.dagen))}</td><td>${esc(o.van)}</td><td>${esc(o.tot)}</td><td><button class="btn small danger" type="button" data-prodel="${esc(o.id)}" aria-label="Verwijderen">×</button></td></tr>`).join('') : '<tr><td colspan="6" class="hint">Nog geen vaste tijden.</td></tr>'}
+      </tbody></table></div>
+      <form id="pr-tijd-form" class="vl-form" autocomplete="off" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))">
+        <label>Plaats<input id="pro-plaats" required placeholder="bijv. Uddel"></label>
+        <label>Wat<select id="pro-soort"><option value="beide">laden en lossen</option><option value="laden">alleen laden</option><option value="lossen">alleen lossen</option></select></label>
+        <label>Van<input id="pro-van" placeholder="07:00" required></label><label>Tot<input id="pro-tot" placeholder="17:00" required></label>
+        <fieldset style="grid-column:1/-1;border:0;padding:0;display:flex;gap:10px;flex-wrap:wrap;align-items:center"><span style="font-size:12px;color:var(--muted)">Dagen</span>${DAGEN_KORT.map(d=>`<label style="display:flex;gap:4px;align-items:center;color:var(--ink)"><input type="checkbox" data-prodag="${d}"${d!=='za'?' checked':''} style="width:auto"> ${d}</label>`).join('')}</fieldset>
+        <button class="btn primary" type="submit">Toevoegen</button>
+      </form>
+      ${Array.isArray(PL.inst.openingstijden) ? '' : '<p class="hint" style="margin:0">Dit zijn de tijden die je hebt opgegeven; ze worden opgeslagen zodra je iets wijzigt.</p>'}`;
   } else {
     B.innerHTML = `<p class="lead" style="margin:0">Charters en andere vervoerders die ritten voor jullie rijden. Het standaard tarief wordt bij een nieuwe rit voorgesteld en telt mee in “Kosten derden”.</p>
       <form class="pr-form" id="pr-derde-form"><label style="grid-column:span 2">Naam<input id="prd-naam" required placeholder="bijv. Transportbedrijf Jansen"></label><label>Standaard tarief per rit (€)<input id="prd-tarief" inputmode="decimal"></label><label>Contact / opmerking<input id="prd-opm"></label><button class="btn primary" type="submit">Toevoegen</button></form>
@@ -2715,6 +2746,10 @@ $('#pr-body').addEventListener('submit', async e => { e.preventDefault(); const 
       await Store.set('beheer/planning/beschik/'+newId(), {chauffeur:$('#prb-ch').value, van, tot, soort:$('#prb-soort').value, herhaal:$('#prb-herhaal').checked, opm:$('#prb-opm').value.trim()});
       if ($('#prb-herhaal').checked && Math.round((parseYmd(tot)-parseYmd(van))/864e5) >= 6) toast('Let op: van t/m tot is een hele week of langer, dus elke dag geldt nu. Kies alleen de dag(en) die elke week terugkomen.');
       else toast($('#prb-herhaal').checked ? 'Vastgelegd: herhaalt elke week' : 'Beschikbaarheid vastgelegd'); }
+    else if (f.id==='pr-tijd-form'){ const plaats = titelCase($('#pro-plaats').value); const van = xlTijd($('#pro-van').value), tot = xlTijd($('#pro-tot').value);
+      const dagen = DAGEN_KORT.filter(d=>f.querySelector(`[data-prodag="${d}"]`).checked);
+      if (!plaats || !van || !tot) return toast('Vul plaats, van en tot in (uu:mm).'); if (tot <= van) return toast('“Tot” ligt vóór “van”.'); if (!dagen.length) return toast('Kies minstens één dag.');
+      PL.inst.openingstijden = [...openingstijden(), {id:newId(), plaats, soort:$('#pro-soort').value, dagen, van, tot}]; await prBewaarInst(); toast(`Laad-/lostijd voor ${plaats} toegevoegd`); $('#pr-body').innerHTML=''; }
     else if (f.id==='pr-derde-form'){ const naam = $('#prd-naam').value.trim(); if (!naam) return; const tf = getal($('#prd-tarief').value);
       PL.inst.derden = (PL.inst.derden||[]).concat([{id:newId(), naam, tarief: Number.isFinite(tf)?tf:null, opm:$('#prd-opm').value.trim()}]); await prBewaarInst(); toast('Derde toegevoegd'); $('#pr-body').innerHTML=''; }
     else if (f.id==='pr-vast-form'){ const dagen = WD.map(([k])=>k).filter(k=>f.querySelector(`[data-prvdag="${k}"]`).checked); if (!dagen.length) return toast('Kies minstens één dag.');
@@ -2728,6 +2763,7 @@ $('#pr-body').addEventListener('submit', async e => { e.preventDefault(); const 
 $('#pr-body').addEventListener('click', async e => { const d = e.target.dataset; if (!d) return;
   try{
     if (d.prbdel){ await Store.del('beheer/planning/beschik/'+d.prbdel); toast('Verwijderd'); }
+    else if (d.prodel){ PL.inst.openingstijden = openingstijden().filter(o=>o.id!==d.prodel); await prBewaarInst(); toast('Verwijderd'); $('#pr-body').innerHTML=''; renderPlanregels(); }
     else if (d.prddel){ PL.inst.derden = (PL.inst.derden||[]).filter(x=>x.id!==d.prddel); await prBewaarInst(); toast('Derde verwijderd; bestaande ritten blijven staan'); $('#pr-body').innerHTML=''; renderPlanregels(); }
     else if (d.prvdel){ await Store.del('beheer/planning/vast/'+d.prvdel); toast('Vaste rit verwijderd'); }
     else if (d.prvedit){ prVastEdit = d.prvedit; $('#pr-body').innerHTML=''; renderPlanregels(); }
@@ -2963,9 +2999,11 @@ function vsContext(){
       leegVermijden: (R0.leegVermijden || []).map(nrm),
     };
     R.maxDienst = 24 - R.minRust; R.maxDienstVerkort = 24 - R.verkortRust;
-    const vensters = {}; (R0.vensters || []).forEach(v => { const k = nrm(v.plaats); const s = v.soort || 'beide';
-      const w = { van: uurVan(v.van) ?? R.std.van, tot: uurVan(v.tot) ?? R.std.tot };
-      if (s === 'laden' || s === 'beide') vensters[k + '|laden'] = w; if (s === 'lossen' || s === 'beide') vensters[k + '|lossen'] = w; });
+    // laad-/lostijden per plaats, eventueel per dag; eerste passende regel telt (weekregels vóór vaste tijden)
+    const vensters = {}; (R0.vensters || []).forEach(v => { if (!v || !v.plaats) return; const k = nrm(v.plaats); const s = v.soort || 'beide';
+      const dagen = Array.isArray(v.dagen) && v.dagen.length ? new Set(v.dagen.map(d => DAG.indexOf(String(d).slice(0, 2).toLowerCase())).filter(i => i >= 0)) : null;
+      const w = { van: uurVan(v.van) ?? R.std.van, tot: uurVan(v.tot) ?? R.std.tot, dagen };
+      ['laden', 'lossen'].forEach(x => { if (s === x || s === 'beide') (vensters[k + '|' + x] = vensters[k + '|' + x] || []).push(w); }); });
     const caps = {}; (R0.maxPerDag || []).forEach(c => { caps[nrm(c.plaats) + '|' + (c.soort || 'lossen')] = Number(c.aantal); });
     const plaatsInfo = inp.plaatsen || {};
     const coord = naam => { const p = plaatsInfo[nrm(naam)] || plaatsInfo[naam]; return p && Number.isFinite(p.lat) && Number.isFinite(p.lon) ? p : null; };
@@ -2981,11 +3019,14 @@ function vsContext(){
           d = Math.round(2 * 6371 * Math.asin(Math.sqrt(h)) * R.wegfactor); } }
       kmCache.set(key, d); return d;
     }
-    const venster = (plaats, soort) => vensters[nrm(plaats) + '|' + soort] || R.std;
-    function openOp(plaats, soort, t) { // eerstvolgend moment >= t dat de plaats open is
-      const w = venster(plaats, soort); let d = Math.floor(t / 24), h = t - d * 24;
-      if (h < w.van) return d * 24 + w.van; if (h >= w.tot) return (d + 1) * 24 + w.van; return t; }
-    const sluitOp = (plaats, soort, t) => { const w = venster(plaats, soort); return Math.floor(t / 24) * 24 + w.tot; };
+    function venster(plaats, soort, dag) { // venster op dag (0 = ma) of null als gesloten
+      const lijst = vensters[nrm(plaats) + '|' + soort]; if (!lijst) return R.std;
+      return lijst.find(w => !w.dagen || w.dagen.has(((dag % 7) + 7) % 7)) || null; }
+    function openOp(plaats, soort, t) { // eerstvolgend moment >= t dat de plaats open is (Infinity als nooit)
+      for (let k = 0; k < 8; k++) { const d = Math.floor(t / 24) + k; const w = venster(plaats, soort, d); if (!w) continue;
+        const s = k === 0 ? Math.max(t, d * 24 + w.van) : d * 24 + w.van; if (s < d * 24 + w.tot - 1e-9) return s; }
+      return Infinity; }
+    const sluitOp = (plaats, soort, t) => { const d = Math.floor(t / 24); const w = venster(plaats, soort, d); return w ? d * 24 + w.tot : t; };
 
 
     /* ---- klok volgens rij- en rusttijden: st = {t,pos,dStart,rij,rijSP,werkSP,weekRij,weekWerk,verlengd,verkort,legs,km,leeg}
@@ -3054,8 +3095,8 @@ function vsContext(){
     Object.entries(caps).forEach(([k, n]) => { const [p, soort] = k.split('|');
       const vraag = vrachten.filter(v => nrm(soort === 'lossen' ? v.naar : v.van) === p).reduce((t, v) => t + v.aantal, 0);
       const naam = (vrachten.find(v => nrm(soort === 'lossen' ? v.naar : v.van) === p) || {})[soort === 'lossen' ? 'naar' : 'van'] || p;
-      const max = n * dagen.length; if (vraag > max) voorcontrole.push({ soort: 'capaciteit', plaats: naam, actie: soort, vraag, max, tekort: vraag - max,
-        tekst: `${vraag} vrachten ${soort} in ${naam}, maar maximaal ${n} per dag × ${dagen.length} dagen = ${max}: minstens ${vraag - max} passen niet.` }); });
+      const open = dagen.filter(d => venster(naam, soort, d)).length; const max = n * open; if (vraag > max) voorcontrole.push({ soort: 'capaciteit', plaats: naam, actie: soort, vraag, max, tekort: vraag - max,
+        tekst: `${vraag} vrachten ${soort} in ${naam}, maar maximaal ${n} per dag × ${open} dagen = ${max}: minstens ${vraag - max} passen niet.` }); });
     if (R.kraanVerplicht && !wagens.some(w => w.kraan)) voorcontrole.push({ soort: 'kraan', tekst: 'Er is geen enkele kraanwagen; niets kan worden geladen.' });
     vrachten.forEach(v => { if (v.wagen && !wagens.some(w => w.id === v.wagen)) voorcontrole.push({ soort: 'wagen', tekst: `${v.ref}: de vaste wagen bestaat niet.` }); });
 
@@ -3074,11 +3115,11 @@ function vsContext(){
         const st = vanTeam(team); const capLokaal = {};
         const plek = (soort, dur, n) => { // laden/lossen op st.pos; n = aantal vrachten (voor maximum per dag)
           for (let poging = 0; poging < 6; poging++) {
-            const s0 = openOp(st.pos, soort, st.t);
-            if (s0 + dur > sluitOp(st.pos, soort, s0) + 1e-9) { wacht(st, Math.floor(s0 / 24) * 24 + 24 + venster(st.pos, soort).van); continue; }
+            const s0 = openOp(st.pos, soort, st.t); if (!Number.isFinite(s0)) return `${soort} in ${st.pos}: geen laad-/lostijd in de week`;
+            if (s0 + dur > sluitOp(st.pos, soort, s0) + 1e-9) { const n2 = openOp(st.pos, soort, Math.floor(s0 / 24) * 24 + 24); if (!Number.isFinite(n2)) return `${soort} in ${st.pos} past niet binnen de laad-/lostijden`; wacht(st, n2); continue; }
             const ck = nrm(st.pos) + '|' + soort; const dag = Math.floor(s0 / 24);
             if (caps[ck] != null && (capTel[ck + '|' + dag] || 0) + (capLokaal[ck + '|' + dag] || 0) + n > caps[ck]) {
-              if (poging === 5) return `${soort} in ${st.pos} vol (max ${caps[ck]} per dag)`; wacht(st, (dag + 1) * 24 + venster(st.pos, soort).van); continue; }
+              const n2 = openOp(st.pos, soort, (dag + 1) * 24); if (poging === 5 || !Number.isFinite(n2)) return `${soort} in ${st.pos} vol (max ${caps[ck]} per dag)`; wacht(st, n2); continue; }
             wacht(st, s0);
             if (st.t - st.dStart + dur > spanCap(st) + 1e-9) { nieuweDienst(st); continue; }
             if (st.werkSP + dur > R.werkVoorPauze + 1e-9 && st.werkSP > 0) { if (st.t - st.dStart + R.pauzeDuur + dur > spanCap(st) + 1e-9) { nieuweDienst(st); continue; } pauze(st); continue; }
@@ -3099,7 +3140,7 @@ function vsContext(){
         if (st.t > R.eindT) return { ok: false, reden: 'past niet meer in de week' };
         // vaste ritten (vaste wagen + vaste dag) van dit koppel moeten bereikbaar blijven
         for (const v of vrachten) { if (!v.wagen || v.dag < 0 || rest[v.id] <= 0 || !team.leden.some(w => w.id === v.wagen) || job.lading.some(l => l.vracht === v)) continue;
-          const deadline = v.dag * 24 + venster(v.van, 'laden').tot - R.laadU; if (start <= deadline && aankomst(st, v.van) > deadline + 1e-9) return { ok: false, reden: `vaste rit ${v.ref} op ${DAG[v.dag]} komt in gevaar` }; }
+          const wv = venster(v.van, 'laden', v.dag); const deadline = wv ? v.dag * 24 + wv.tot - R.laadU : v.dag * 24; if (start <= deadline && aankomst(st, v.van) > deadline + 1e-9) return { ok: false, reden: `vaste rit ${v.ref} op ${DAG[v.dag]} komt in gevaar` }; }
         for (const a of team.afspr) { if (start >= a.tot) continue;
           if (aankomst(st, a.plaats) > a.van + 1e-9) return { ok: false, reden: `afspraak: ${a.kenteken} moet ${fmt(a.van)} in ${a.plaats} staan` }; }
         // daarna nog op tijd op de eindplaats (binnen de rij- en werktijden)?
@@ -3208,8 +3249,8 @@ function vsContext(){
           if (l.soort === 'rij') { if (nrm(l.van) !== nrm(pos) && !l._deel) { /* deelstuk van een lange rit: positie onderweg */ }
             const u = l.eind - l.start; cur.rij += u; rijAaneen += u; werkAaneen += u; weekRij += u; weekWerk += u; if (l.laatste !== false) pos = l.naar;
             if (rijAaneen > R.pauzeNa + 1e-6) controle.push(`${naam}: ${rijAaneen.toFixed(2)} u aaneen gereden zonder pauze (${fmt(l.eind)})`); }
-          else if (l.soort === 'laden' || l.soort === 'lossen') { const w = venster(l.plaats, l.soort), h = l.start - Math.floor(l.start / 24) * 24;
-            if (h < w.van - 1e-6 || h + (l.eind - l.start) > w.tot + 1e-6) controle.push(`${naam}: ${l.soort} in ${l.plaats} om ${fmt(l.start)} buiten openingstijd`);
+          else if (l.soort === 'laden' || l.soort === 'lossen') { const w = venster(l.plaats, l.soort, Math.floor(l.start / 24)), h = l.start - Math.floor(l.start / 24) * 24;
+            if (!w || h < w.van - 1e-6 || h + (l.eind - l.start) > w.tot + 1e-6) controle.push(`${naam}: ${l.soort} in ${l.plaats} om ${fmt(l.start)} buiten openingstijd`);
             if (nrm(l.plaats) !== nrm(pos)) controle.push(`${naam}: ${l.soort} in ${l.plaats} maar staat in ${pos}`);
             const u = l.eind - l.start; werkAaneen += u; weekWerk += u; }
           if (werkAaneen > R.werkVoorPauze + 1e-6) controle.push(`${naam}: ${werkAaneen.toFixed(2)} u aaneen gewerkt zonder pauze (${fmt(l.eind)})`);
@@ -3306,7 +3347,8 @@ function vsRegelsHtml(R){
       <label>Afstand over de weg = hemelsbreed ×<input data-r="wegfactor" inputmode="decimal" value="${esc(R.wegfactor)}"></label>
       <label style="display:flex;gap:6px;align-items:center;color:var(--ink);align-self:end"><input type="checkbox" data-r="kraanVerplicht"${R.kraanVerplicht!==false?' checked':''} style="width:auto"> Laden alleen met een kraanwagen erbij</label>
     </div>
-    <div class="vs-sub">Laad-/lostijden per plaats</div>${lijst('vensters', R.vensters||[], x=>`${plaatsIn(x.plaats)}<select data-k="soort">${['beide','laden','lossen'].map(o=>`<option${o===(x.soort||'beide')?' selected':''}>${o}</option>`).join('')}</select>${tIn('van',x.van)}–${tIn('tot',x.tot)}`)}
+    <div class="vs-sub">Laad-/lostijden</div><p class="hint" style="margin:0 0 4px">Vast (Planregels → Laad- en lostijden): ${esc(openingstijden().map(o=>`${o.plaats} ${o.soort==='beide'?'laden/lossen':o.soort} ${dagenTekst(o.dagen)} ${o.van}–${o.tot}`).join(' · ') || 'geen')}. Alleen voor deze week anders? Voeg hieronder toe; dat gaat vóór de vaste tijden.</p>
+    ${lijst('vensters', R.vensters||[], x=>`${plaatsIn(x.plaats)}<select data-k="soort">${['beide','laden','lossen'].map(o=>`<option${o===(x.soort||'beide')?' selected':''}>${o}</option>`).join('')}</select><input data-k="dagen" value="${esc(x.dagen && x.dagen.length ? dagenTekst(x.dagen) : '')}" placeholder="dagen, bijv. ma t/m do" style="width:9em">${tIn('van',x.van)}–${tIn('tot',x.tot)}`)}
     <div class="vs-sub">Maximum per dag per plaats</div>${lijst('maxPerDag', R.maxPerDag||[], x=>`${plaatsIn(x.plaats)}<select data-k="soort">${['lossen','laden'].map(o=>`<option${o===(x.soort||'lossen')?' selected':''}>${o}</option>`).join('')}</select><input data-k="aantal" inputmode="numeric" value="${esc(x.aantal??'')}" style="width:4em"> vrachten per dag`)}
     <div class="vs-sub">Wagen moet op een plaats staan</div>${lijst('wagenAfspraken', R.wagenAfspraken||[], x=>`<select data-k="kenteken">${wagens().map(w=>`<option${norm(w.kenteken)===norm(x.kenteken)?' selected':''}>${esc(w.kenteken)}</option>`).join('')}</select> in ${plaatsIn(x.plaats)} van <input data-k="van" value="${esc(x.van||'')}" placeholder="wo 20:00" style="width:6.5em"> tot <input data-k="tot" value="${esc(x.tot||'')}" placeholder="do 04:00" style="width:6.5em">`)}
     <div class="vs-sub">Zo min mogelijk leeg rijden naar</div><input data-r="leegVermijden" value="${esc((R.leegVermijden||[]).join(', '))}" placeholder="plaatsen, met komma's">
@@ -3328,7 +3370,7 @@ function vsLeesRegels(){ // formulier → regels
   R.kraanVerplicht = g('[data-r="kraanVerplicht"]').checked;
   R.leegVermijden = g('[data-r="leegVermijden"]').value.split(',').map(x=>x.trim()).filter(Boolean);
   const rijen = soort => [...B.querySelectorAll(`[data-lijst="${soort}"] .rij`)].map(r=>Object.fromEntries([...r.querySelectorAll('[data-k]')].map(e=>[e.dataset.k, e.value.trim()])));
-  R.vensters = rijen('vensters').filter(x=>x.plaats).map(x=>({plaats:x.plaats, soort:x.soort, van: xlTijd(x.van)||'', tot: xlTijd(x.tot)||''}));
+  R.vensters = rijen('vensters').filter(x=>x.plaats).map(x=>({plaats:x.plaats, soort:x.soort, dagen: dagenVan(x.dagen), van: xlTijd(x.van)||'', tot: xlTijd(x.tot)||''}));
   R.maxPerDag = rijen('maxPerDag').filter(x=>x.plaats && getal(x.aantal)>0).map(x=>({plaats:x.plaats, soort:x.soort, aantal: Math.round(getal(x.aantal))}));
   R.wagenAfspraken = rijen('wagenAfspraken').filter(x=>x.plaats).map(x=>({kenteken:x.kenteken, plaats:x.plaats, van:x.van.toLowerCase(), tot:x.tot.toLowerCase()}));
   R.koppels = Object.fromEntries([...B.querySelectorAll('[data-koppel]')].map(e=>[e.dataset.koppel, e.value]));
@@ -3386,7 +3428,7 @@ start/eind: "ma 05:00" (dag + tijd) wanneer de week begint en uiterlijk klaar is
 snelheid: gemiddelde km/u. laadUur/losUur: uur per vracht. maxRijtijd: uur rijden per dag (laden/lossen telt niet), maxRijtijdVerlengd + aantalVerlengd: verlengde rijtijd en hoe vaak per week. minRust: dagelijkse rust in uur, verkorteRust + aantalVerkort: verkorte rust en hoe vaak per week. pauzeNaRijtijd (uur rijden) en pauzeDuur (uur). werkVoorPauze: uur werk waarna pauze nodig is. maxRijtijdWeek, maxArbeidstijdWeek: uur per week. vroegsteStart: "04:00".
 Op de andere dagen rijden de wagens door tot hun rij- en werktijd op is; eind is het vaste eindmoment van de week (bijv. "vr 15:30"). Alleen als de planner zegt dat ook de laatste dag geen eindtijd heeft: eind is alleen de dag (bijv. "vr").
 kraanVerplicht: true als laden alleen kan met een kraanwagen erbij. standaardVenster {van,tot}: laad-/lostijden als niets anders is afgesproken.
-vensters: [{plaats, soort:"laden"|"lossen"|"beide", van:"07:00", tot:"17:00"}]. maxPerDag: [{plaats, soort:"lossen"|"laden", aantal}].
+vensters: [{plaats, soort:"laden"|"lossen"|"beide", dagen:["ma","di",…] (leeg = elke dag), van:"07:00", tot:"17:00"}] — alleen tijden die in de afspraken staan en afwijken van deze vaste tijden: ${openingstijden().map(o=>`${o.plaats} ${o.soort} ${dagenTekst(o.dagen)} ${o.van}-${o.tot}`).join('; ') || 'geen'}. maxPerDag: [{plaats, soort:"lossen"|"laden", aantal}].
 wagenAfspraken: [{kenteken, plaats, van:"wo 20:00", tot:"do 04:00"}] (wagen staat in die periode op die plaats en rijdt niet).
 leegVermijden: [plaatsen waar zo min mogelijk leeg naartoe gereden moet worden]. maxLatenVallen: aantal vrachten dat mag afvallen, of null.
 Standaard al zo geregeld (niet noemen bij onbegrepen): een kraanwagen neemt zelf ook een vracht mee; trailers lossen zelf; een kraanwagen laadt de trailers die met hem meerijden.
@@ -3400,7 +3442,7 @@ Antwoord met alleen JSON: {"regels":{…alle velden…},"onbegrepen":["afspraak 
     if (r.maxLatenVallen===null || Number.isFinite(getal(r.maxLatenVallen))) R.maxLatenVallen = r.maxLatenVallen===null ? null : Math.round(getal(r.maxLatenVallen));
     if (typeof r.kraanVerplicht==='boolean') R.kraanVerplicht = r.kraanVerplicht;
     if (r.standaardVenster && r.standaardVenster.van) R.standaardVenster = { van: xlTijd(r.standaardVenster.van)||'06:00', tot: xlTijd(r.standaardVenster.tot)||'18:00' };
-    if (Array.isArray(r.vensters)) R.vensters = r.vensters.filter(x=>x && x.plaats).map(x=>({plaats:String(x.plaats), soort:['laden','lossen'].includes(x.soort)?x.soort:'beide', van:xlTijd(x.van)||'', tot:xlTijd(x.tot)||''}));
+    if (Array.isArray(r.vensters)) R.vensters = r.vensters.filter(x=>x && x.plaats).map(x=>({plaats:String(x.plaats), soort:['laden','lossen'].includes(x.soort)?x.soort:'beide', dagen: Array.isArray(x.dagen) ? x.dagen.map(d=>String(d).slice(0,2).toLowerCase()).filter(d=>DAGEN_KORT.includes(d)) : [], van:xlTijd(x.van)||'', tot:xlTijd(x.tot)||''}));
     if (Array.isArray(r.maxPerDag)) R.maxPerDag = r.maxPerDag.filter(x=>x && x.plaats && getal(x.aantal)>0).map(x=>({plaats:String(x.plaats), soort:x.soort==='laden'?'laden':'lossen', aantal:Math.round(getal(x.aantal))}));
     if (Array.isArray(r.wagenAfspraken)) R.wagenAfspraken = r.wagenAfspraken.filter(x=>x && x.kenteken && x.plaats).map(x=>{ const w = S.stam.wagens.find(y=>norm(y.kenteken)===norm(x.kenteken)); return {kenteken: w ? w.kenteken : String(x.kenteken).toUpperCase(), plaats:String(x.plaats), van:String(x.van||'').toLowerCase(), tot:String(x.tot||'').toLowerCase()}; });
     if (Array.isArray(r.leegVermijden)) R.leegVermijden = r.leegVermijden.map(String).filter(Boolean);
@@ -3453,7 +3495,7 @@ async function vsReken(){
   const kp = koppelsVan(R); const kr = wagens().filter(w=>(VL.wagen[w.id]||{}).kraan===true);
   const koppels = kr.map(k=>[k.id, ...Object.entries(kp).filter(([,kid])=>kid===k.id).map(([tid])=>tid)]);
   const plaatsen = {}; plaatsenNodig(R, vr).forEach(p=>{ const c = plaatsCoord(p.naam); plaatsen[norm(p.naam)] = { lat:Number(c.lat), lon:Number(c.lon) }; });
-  const inp = { regels: R, plaatsen, wagens: wagens().map(w=>({id:w.id, kenteken:w.kenteken, kraan:(VL.wagen[w.id]||{}).kraan===true})), koppels: R.kraanVerplicht!==false ? koppels : null,
+  const inp = { regels: Object.assign({}, R, { vensters: [...(R.vensters||[]), ...openingstijden()] }), plaatsen, wagens: wagens().map(w=>({id:w.id, kenteken:w.kenteken, kraan:(VL.wagen[w.id]||{}).kraan===true})), koppels: R.kraanVerplicht!==false ? koppels : null,
     vrachten: open.map(v=>({ id:v.id, ref:v.ref, van:v.van, naar:v.naar, aantal: v.aantal - v.gepland, dag: v.dag||'', wagen: v.wagen||'' })), seed: Date.now() % 100000 };
   const planner = maakPlanner(inp);
   if (planner.fout){ $('#vs-fout').hidden = false; $('#vs-fout').textContent = 'Onbekende plaatsen: ' + planner.onbekend.join(', '); return; }
@@ -3507,7 +3549,7 @@ function vsVanMotor(res, R, open, inp){
       'Elke rit is getoetst op rijtijd per dienst, dienstduur, rust, laad-/lostijden, maxima per dag, afspraken per wagen en op tijd terug op de eindplaats.',
       `${res.iteraties} varianten geprobeerd; de variant met de meeste vrachten en daarna de minste lege km is gekozen.` ],
     aannames: [ `Afstanden geschat: hemelsbreed × ${R.wegfactor} (±10–15%). Pas plaatsen of de factor aan als je betere afstanden hebt.`,
-      `Laad- en lostijden elders ${R.standaardVenster.van}–${R.standaardVenster.tot}, tenzij anders ingesteld.`,
+      `Laad- en lostijden: vast ${openingstijden().map(o=>`${o.plaats} ${o.soort==='beide'?'laden/lossen':o.soort} ${dagenTekst(o.dagen)} ${o.van}–${o.tot}`).join('; ') || '—'}${(R.vensters||[]).length?`; deze week ook ${R.vensters.map(o=>`${o.plaats} ${o.soort} ${dagenTekst(o.dagen)} ${o.van}–${o.tot}`).join('; ')}`:''}; elders ${R.standaardVenster.van}–${R.standaardVenster.tot}.`,
       `Rij- en rusttijden: rijden max. ${R.maxRijtijd} u per dag (${R.aantalVerlengd}× per week ${R.maxRijtijdVerlengd} u), na ${R.pauzeNaRijtijd} u rijden ${Math.round(R.pauzeDuur*60)} min pauze, ook pauze na ${R.werkVoorPauze} u werk (veilig: altijd ${Math.round(R.pauzeDuur*60)} min), dagelijkse rust ${R.minRust} u (${R.aantalVerkort}× per week ${R.verkorteRust} u, dan dienst max. ${24-R.verkorteRust} u), per week max. ${R.maxRijtijdWeek} u rijden en ${R.maxArbeidstijdWeek} u arbeid. Wachten van ${Math.round(R.pauzeDuur*60)} min of langer telt als pauze. Een dienst start niet vóór ${R.vroegsteStart}.`,
       planTijd(R.eind) % 24 === 0 ? `Laatste dag (${R.eind}): doorrijden tot de rij- en werktijd op is, daarna terug in ${R.eindPlaats}.` : `Uiterlijk ${R.eind} terug in ${R.eindPlaats}.`,
       'Trailer en kraanwagen van een koppel rijden samen; lossen gebeurt tegelijk.', 'Chauffeurs: vaste chauffeur van de wagen, anders een vrije chauffeur zonder vaste wagen.' ],
@@ -4024,6 +4066,7 @@ TABBLAD PLANNING
 - Vrachten (rechts naast het rooster, beheerders): per week de lijst met vrachten. In de stand Maken typ of plak je de vrachten in gewone zinnen, bijv. "10 vrachten hout van Bawinkel naar Uddel" of "1 vracht hout van Putten naar Enschede door 29-BZN-3 op woensdag". "Inlezen en controleren" toont een controletabel (groen zeker, geel controleren, rood aanvullen) met aantal, omschrijving, lading, laden in, lossen in, dag, wagen en opmerking; zinnen zonder vracht (bijv. "elke dag maximaal 6 vrachten lossen in Uddel") worden bewaard als afspraken van die week. Per vracht zie je "gepland/gevraagd" met een balk: telt ritten die bij de vracht horen (veld "Hoort bij vracht" in de rit) en losse ritten met dezelfde laad- en losplaats. Onder de lijst: afspraken, wagens met/zonder kraan en afwezigheid. Knoppen Wijzig en × per vracht; "+ Vracht" voegt er één los toe.
 - Planningsvoorstel (rekenmotor, ook voor 100+ vrachten): stap 1 "Dit gaat mee", stap 2 "Regels voor deze week" (start/eind dag-tijd-plaats, snelheid, laden/lossen per vracht, max. rijtijd per dienst, max. dienst, rust, vroegste start, standaard laad-/lostijden, max. laten vallen, wegfactor, laden alleen met kraan; lijsten: laad-/lostijden per plaats, maximum per dag per plaats, wagen moet op een plaats staan van–tot, zo min mogelijk leeg naar; koppels trailer → kraanwagen). Knop "Afspraken omzetten met Claude" vult de regels uit de afspraken; Claude meldt vragen en wat niet in regels past. Regels worden per week bewaard; een nieuwe week neemt die van de vorige over (zonder wagenafspraken). Stap 3 "Plaatsen en afstanden": ligging per plaats (Claude zoekt ontbrekende op, of zelf invullen) en km vanaf de start. "Reken de planning door" probeert honderden varianten (max. 20 s, knop Stoppen) en kiest de variant met de meeste vrachten en dan de minste lege km. Elke rit wordt gecontroleerd op rijtijd, dienstduur, rust, openingstijden, maxima per dag, wagenafspraken en op tijd terug. Daarna: oordeel, samenvatting (km, leeg), knelpunten (o.a. onvermijdelijk tekort door losmaximum), per vracht met reden waarom iets niet past, en de ritten (chauffeur = vaste chauffeur van de wagen, anders een vrije chauffeur).
 - Planningsvoorstel (oude uitleg, nog geldig voor de beoordeling): gebruikt de vrachtenlijst, de afspraken, de planregels en wat al in het rooster staat. Vooraf "Dit gaat mee" (controle: aantal vrachten, wagens met kraan/trailer, ontbrekende kraan-instelling, afspraken). Tijdens het plannen zie je de stappen en hoeveel ritten al zijn opgesteld (knop Stoppen). Daarna: oordeel Past / Past deels / Past niet (zelf nageteld per vracht), "Waar het op vastloopt" (te veel vrachten, regels, vrachten die nergens genoemd zijn), "Claude heeft informatie nodig" (vragen met invulvak; "Beantwoord en plan opnieuw"), aannames, "Zo heeft Claude het aangepakt", tabel Per vracht (te plannen / in voorstel / niet gepland met reden) en de ritten met kleur. Na Akkoord worden de ritten aan de vracht gekoppeld.
+- Planregels → Laad- en lostijden: vaste tijden per plaats, per dag (bijv. Uddel ma t/m do 07:00–17:00 en vr 07:00–16:00 laden en lossen; Barneveld ma t/m vr 06:30–17:00 laden; Daarlerveen ma t/m vr 07:00–18:00). Gelden elke week in het planningsvoorstel; niet aangevinkte dagen = dicht. Per week afwijkingen invullen in het voorstel (gaan vóór de vaste tijden).
 - Planregels (knop, beheerders) met vier onderdelen: Wagens & lading (per ladingtype of laden een kraan vraagt; per wagen autolaadkraan ja/nee en voor welke lading geschikt), Beschikbaarheid (chauffeur vrij, vakantie, ziek, opleiding, of "moet thuis slapen" van/tot; met "Herhaal elke week" geldt het elke week op dezelfde dag(en) vanaf de begindatum, bijv. elke woensdag thuis slapen), Vaste ritten (terugkerend werk per weekdag), Derden (charters met standaard tarief).
 - Controles: rode rand = regel overtreden (chauffeur of wagen dubbel geboekt, wagen niet geschikt voor de lading, lading vraagt kraan maar wagen heeft er geen en is niet gekoppeld aan een kraanwagen, chauffeur afwezig, overnachting terwijl chauffeur thuis moet slapen). Gele rand = controleren (dienst langer dan 15 uur, laadadres wijkt af van kraanwagen, enz.). Alle meldingen staan onder het rooster; klik erop om de rit te openen.
 - Excel: kies in de keuzelijst naast de weekknoppen "alle ritten", een kenteken, een chauffeur of een derde en klik Excel; je krijgt de ritten van de getoonde week (tabblad Ritten) en een rooster per dag (tabblad Rooster).
