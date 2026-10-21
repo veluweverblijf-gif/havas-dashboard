@@ -52,7 +52,13 @@ Implements those capabilities on Supabase:
 ## Planning engine
 The planningsvoorstel no longer asks Claude to write the whole schedule; that does not scale to 100+ loads.
 - `maakPlanner()` / `planWeek()` (inline in `web/index.html`, copy in `test/planmotor.js`) is a randomized greedy scheduler over kraan+trailer teams.
-- It respects: rijtijd per dienst, dienstduur, rust, vroegste start, laad/los windows per place, max per day per place, wagen appointments (place from–to), fixed day/wagen per load, and being back at the end place.
+- It respects the rij- en rusttijden (EU 561/2006 + Arbeidstijdenbesluit vervoer):
+  - 9 u driving per day, 10 u twice a week;
+  - 45 min pause after 4.5 u driving, and after 6 u work (driving + loading/unloading); a wait of 45 min or more counts as a pause;
+  - daily rest 11 u, or 9 u three times a week (duty max 13 u or 15 u);
+  - 56 u driving and 60 u working time per week.
+- It also respects: vroegste start, laad/los windows per place, max per day per place, wagen appointments (place from–to), fixed day/wagen per load, and being back at the end place.
+- The last day may be given without a time (`eind: 'vr'`). Drivers then keep going until their driving/working time is used up.
 - It keeps the best of hundreds of variants: most loads first, then fewest empty km.
 - An independent validator re-checks the winning schedule.
 - Claude is only used to turn free-text afspraken into the `regels` object, and to look up coordinates of places.
