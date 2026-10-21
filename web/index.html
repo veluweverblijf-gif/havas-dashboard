@@ -3249,7 +3249,7 @@ function vsContext(){
 function vsVracht(){ // vrachten van deze week met korte referenties v1, v2, …
   const vr = vrachtenWeek(); const tel = vrStand();
   return vr.map((v,i)=>Object.assign({}, v, { ref: 'v'+(i+1), gepland: Math.min(tel[v.id]||0, Number(v.aantal)||0) })); }
-const STD_REGELS = { start:'ma 05:00', startPlaats:'Elspeet', eind:'vr', eindPlaats:'Elspeet', snelheid:70, laadUur:1, losUur:1, maxRijtijd:9, maxRijtijdVerlengd:10, aantalVerlengd:2,
+const STD_REGELS = { start:'ma 05:00', startPlaats:'Elspeet', eind:'vr 15:30', eindPlaats:'Elspeet', snelheid:70, laadUur:1, losUur:1, maxRijtijd:9, maxRijtijdVerlengd:10, aantalVerlengd:2,
   minRust:11, verkorteRust:9, aantalVerkort:3, pauzeNaRijtijd:4.5, pauzeDuur:0.75, werkVoorPauze:6, maxRijtijdWeek:56, maxArbeidstijdWeek:60,
   vroegsteStart:'04:00', wegfactor:1.3, kraanVerplicht:true, standaardVenster:{van:'06:00', tot:'18:00'}, vensters:[], maxPerDag:[], wagenAfspraken:[], leegVermijden:[], maxLatenVallen:null, koppels:{} };
 function regelsVoorWeek(wid){
@@ -3384,7 +3384,7 @@ ${JSON.stringify(huidig)}
 BETEKENIS VAN DE VELDEN
 start/eind: "ma 05:00" (dag + tijd) wanneer de week begint en uiterlijk klaar is; startPlaats/eindPlaats: waar alle wagens beginnen/eindigen.
 snelheid: gemiddelde km/u. laadUur/losUur: uur per vracht. maxRijtijd: uur rijden per dag (laden/lossen telt niet), maxRijtijdVerlengd + aantalVerlengd: verlengde rijtijd en hoe vaak per week. minRust: dagelijkse rust in uur, verkorteRust + aantalVerkort: verkorte rust en hoe vaak per week. pauzeNaRijtijd (uur rijden) en pauzeDuur (uur). werkVoorPauze: uur werk waarna pauze nodig is. maxRijtijdWeek, maxArbeidstijdWeek: uur per week. vroegsteStart: "04:00".
-Als de planner zegt dat ze doorrijden tot hun rij-/werktijd op is: eind is alleen de dag (bijv. "vr"), zonder tijd.
+Op de andere dagen rijden de wagens door tot hun rij- en werktijd op is; eind is het vaste eindmoment van de week (bijv. "vr 15:30"). Alleen als de planner zegt dat ook de laatste dag geen eindtijd heeft: eind is alleen de dag (bijv. "vr").
 kraanVerplicht: true als laden alleen kan met een kraanwagen erbij. standaardVenster {van,tot}: laad-/lostijden als niets anders is afgesproken.
 vensters: [{plaats, soort:"laden"|"lossen"|"beide", van:"07:00", tot:"17:00"}]. maxPerDag: [{plaats, soort:"lossen"|"laden", aantal}].
 wagenAfspraken: [{kenteken, plaats, van:"wo 20:00", tot:"do 04:00"}] (wagen staat in die periode op die plaats en rijdt niet).

@@ -58,7 +58,7 @@ The planningsvoorstel no longer asks Claude to write the whole schedule; that do
   - daily rest 11 u, or 9 u three times a week (duty max 13 u or 15 u);
   - 56 u driving and 60 u working time per week.
 - It also respects: vroegste start, laad/los windows per place, max per day per place, wagen appointments (place from–to), fixed day/wagen per load, and being back at the end place.
-- The last day may be given without a time (`eind: 'vr'`). Drivers then keep going until their driving/working time is used up.
+- Every day drivers keep going until their driving/working time is used up, except that the week ends at a fixed moment. The default is `eind: 'vr 15:30'` (owner's wish: Friday 15:30 back in Uddel). `eind: 'vr'` without a time is possible, but only if the owner asks for it.
 - It keeps the best of hundreds of variants: most loads first, then fewest empty km.
 - An independent validator re-checks the winning schedule.
 - Claude is only used to turn free-text afspraken into the `regels` object, and to look up coordinates of places.
