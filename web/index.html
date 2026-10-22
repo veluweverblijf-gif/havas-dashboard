@@ -60,6 +60,20 @@ table.vl td.k{font-family:var(--f-mono);font-weight:500;white-space:nowrap}
 table.vl tr.fout td{background:var(--bad-soft)}
 .tab{font-family:var(--f-display);font-size:17px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;border:0;background:transparent;color:var(--muted);padding:6px 14px;border-radius:4px;cursor:pointer}
 .tab[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+/* hamburgermenu met alle tabbladen */
+.menu-wrap{position:relative}
+.hamburger{display:flex;align-items:center;gap:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:var(--r);padding:6px 12px 6px 10px;cursor:pointer;font-family:var(--f-display);font-size:17px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;min-height:40px}
+.hamburger:hover{background:var(--sunk)}
+.hamburger .ham{display:grid;gap:4px;width:20px}
+.hamburger .ham i{display:block;height:2px;border-radius:1px;background:currentColor;transition:transform .15s,opacity .15s}
+.hamburger[aria-expanded="true"] .ham i:nth-child(1){transform:translateY(6px) rotate(45deg)}
+.hamburger[aria-expanded="true"] .ham i:nth-child(2){opacity:0}
+.hamburger[aria-expanded="true"] .ham i:nth-child(3){transform:translateY(-6px) rotate(-45deg)}
+.menu-lijst.tabs{display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:30;flex-direction:column;flex-wrap:nowrap;gap:2px;min-width:260px;padding:6px;background:var(--surface);border:1px solid var(--line);box-shadow:0 8px 24px rgba(0,0,0,.14)}
+.menu-lijst.tabs.open{display:flex}
+.menu-lijst .tab{text-align:left;width:100%;padding:10px 14px;white-space:nowrap}
+.menu-lijst .tab[hidden]{display:none}
+.menu-lijst .tab[aria-selected="true"]{background:var(--accent-soft);color:var(--ink);box-shadow:inset 3px 0 0 var(--accent)}
 .chip{font-size:12px;padding:3px 9px;border-radius:99px;background:var(--sunk);color:var(--muted);white-space:nowrap}
 .chip.ok{background:var(--ok-soft);color:var(--ok)} .chip.warn{background:var(--warn-soft);color:var(--warn)} .chip.bad{background:var(--bad-soft);color:var(--bad)}
 main{padding-block:20px 48px}
@@ -398,8 +412,9 @@ dialog::backdrop{background:rgba(10,14,11,.5)}
 </head>
 <body>
 <header class="bar"><div class="wrap">
-  <div class="brand"><b>Havas</b><span>Houttransport · Elspeet</span></div>
-  <div class="tabs" role="tablist">
+  <div class="menu-wrap">
+    <button class="hamburger" type="button" id="menu-knop" aria-expanded="false" aria-controls="menu-lijst" aria-label="Menu met alle onderdelen"><span class="ham" aria-hidden="true"><i></i><i></i><i></i></span><span id="menu-huidig">Overzicht</span></button>
+  <div class="tabs menu-lijst" role="tablist" id="menu-lijst" aria-orientation="vertical">
     <button class="tab" role="tab" id="tab-overzicht" aria-selected="true" aria-controls="pane-overzicht">Overzicht</button>
     <button class="tab" role="tab" id="tab-uren" aria-selected="false" aria-controls="pane-uren">Uren</button>
     <button class="tab" role="tab" id="tab-plan" aria-selected="false" aria-controls="pane-plan">Planning</button>
@@ -408,6 +423,8 @@ dialog::backdrop{background:rgba(10,14,11,.5)}
     <button class="tab" role="tab" id="tab-kostprijs" aria-selected="false" aria-controls="pane-kostprijs" hidden>Kostprijs overzicht</button>
     <button class="tab" role="tab" id="tab-beheer" aria-selected="false" aria-controls="pane-beheer" hidden>Beheer</button>
   </div>
+  </div>
+  <div class="brand"><b>Havas</b><span>Houttransport · Elspeet</span></div>
   <span class="chip" id="role-chip" hidden></span>
   <span class="chip" id="store-chip">Laden…</span>
   <button class="btn small" id="btn-stam">Instellingen</button>
@@ -976,10 +993,21 @@ let tt; function toast(t){ const el=$('#toast'); const dlg = document.querySelec
 
 /* ---------- tabs ---------- */
 let huidigeTab = 'uren';
+/* hamburgermenu */
+function menuDicht(){ $('#menu-lijst').classList.remove('open'); $('#menu-knop').setAttribute('aria-expanded','false'); }
+$('#menu-knop').addEventListener('click', e => { e.stopPropagation(); const open = !$('#menu-lijst').classList.contains('open');
+  $('#menu-lijst').classList.toggle('open', open); $('#menu-knop').setAttribute('aria-expanded', String(open));
+  if (open){ const sel = $('#menu-lijst .tab[aria-selected="true"]') || $('#menu-lijst .tab:not([hidden])'); if (sel) sel.focus(); } });
+document.addEventListener('click', e => { if (!e.target.closest('.menu-wrap')) menuDicht(); });
+document.addEventListener('keydown', e => { if (e.key==='Escape' && $('#menu-lijst').classList.contains('open')){ menuDicht(); $('#menu-knop').focus(); }
+  if (!$('#menu-lijst').classList.contains('open') || !['ArrowDown','ArrowUp'].includes(e.key)) return;
+  const tabs = [...document.querySelectorAll('#menu-lijst .tab:not([hidden])')]; const i = tabs.indexOf(document.activeElement);
+  const n = tabs[(i + (e.key==='ArrowDown' ? 1 : -1) + tabs.length) % tabs.length]; if (n){ e.preventDefault(); n.focus(); } });
 function showTab(which){
   if (['beheer','brandstof','techniek','kostprijs'].includes(which) && !S.beheer) which = 'uren';
   huidigeTab = which;
   for (const t of ['overzicht','uren','plan','brandstof','techniek','kostprijs','beheer']){ $('#tab-'+t).setAttribute('aria-selected', String(t===which)); $('#pane-'+t).hidden = t!==which; }
+  $('#menu-huidig').textContent = $('#tab-'+which).textContent; menuDicht();
   try{ localStorage.setItem(LKEY+'-tab', which); }catch{}
   if (which==='beheer') loadBeheer();
   if (which==='brandstof' || which==='techniek') renderVloot();
