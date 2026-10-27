@@ -73,6 +73,12 @@ table.vl tr.fout td{background:var(--bad-soft)}
 .menu-lijst.tabs.open{display:flex}
 .menu-lijst .tab{text-align:left;width:100%;padding:10px 14px;white-space:nowrap}
 .menu-lijst .tab[hidden]{display:none}
+.menu-lijst .tab.sub{padding-left:30px;font-size:13px}
+.bm-grid{display:grid;grid-template-columns:minmax(200px,330px) minmax(0,1fr);gap:14px;align-items:start}
+.bm-grid>div:first-child{position:sticky;top:0}
+.bm-scan{display:block;width:100%;border:1px solid var(--line);border-radius:var(--r);background:#fff}
+.bm-pag{border-top:1px solid var(--line);padding-top:12px}
+@media (max-width:800px){.bm-grid{grid-template-columns:minmax(0,1fr)}.bm-grid>div:first-child{position:static;max-width:260px}}
 .menu-lijst .tab[aria-selected="true"]{background:var(--accent-soft);color:var(--ink);box-shadow:inset 3px 0 0 var(--accent)}
 .chip{font-size:12px;padding:3px 9px;border-radius:99px;background:var(--sunk);color:var(--muted);white-space:nowrap}
 .chip.ok{background:var(--ok-soft);color:var(--ok)} .chip.warn{background:var(--warn-soft);color:var(--warn)} .chip.bad{background:var(--bad-soft);color:var(--bad)}
@@ -419,6 +425,7 @@ dialog::backdrop{background:rgba(10,14,11,.5)}
     <button class="tab" role="tab" id="tab-uren" aria-selected="false" aria-controls="pane-uren">Uren</button>
     <button class="tab" role="tab" id="tab-plan" aria-selected="false" aria-controls="pane-plan">Planning</button>
     <button class="tab" role="tab" id="tab-brandstof" aria-selected="false" aria-controls="pane-brandstof" hidden>Brandstofverbruik</button>
+    <button class="tab sub" role="tab" id="tab-bmaand" aria-selected="false" aria-controls="pane-bmaand" hidden>↳ Maandoverzichten brandstof</button>
     <button class="tab" role="tab" id="tab-techniek" aria-selected="false" aria-controls="pane-techniek" hidden>Technisch overzicht</button>
     <button class="tab" role="tab" id="tab-kostprijs" aria-selected="false" aria-controls="pane-kostprijs" hidden>Kostprijs overzicht</button>
     <button class="tab" role="tab" id="tab-beheer" aria-selected="false" aria-controls="pane-beheer" hidden>Beheer</button>
@@ -583,6 +590,24 @@ dialog::backdrop{background:rgba(10,14,11,.5)}
     </div>
   </section>
 
+  <!-- ============ BRANDSTOF MAANDOVERZICHTEN ============ -->
+  <section id="pane-bmaand" role="tabpanel" aria-labelledby="tab-bmaand" hidden>
+    <div class="panel">
+      <div class="toolbar">
+        <h2 style="margin-right:8px">Maandoverzichten brandstof</h2>
+        <label for="bm-per">Maand <select id="bm-per" style="width:auto"></select></label>
+      </div>
+      <div class="toolbar" style="margin-top:4px;background:var(--accent-soft);border-radius:var(--r);padding:8px 10px">
+        <b style="font-size:13px">Handgeschreven maandoverzichten uitlezen</b>
+        <span class="btn small filebtn">PDF of foto’s kiezen<input type="file" id="bm-file" accept="application/pdf,.pdf,image/*" multiple aria-label="Gescande PDF of foto’s van de maandoverzichten kiezen"></span>
+        <span class="chip" id="bm-n" hidden></span>
+        <button class="btn primary small" type="button" id="bm-go" disabled>Uitlezen met Claude</button>
+      </div>
+      <div id="bm-out" style="margin-top:12px"></div>
+      <p class="hint">Eén formulier per kenteken per maand. Claude leest elke pagina; jij controleert alles naast de scan voordat het wordt opgeslagen. Km per week = km-stand aan het eind van de week min de stand aan het begin; ligt er geen stand op de weekgrens, dan wordt tussen de omliggende standen geschat naar werkdagen (zaterdag telt licht, zondag niet). Km-standen die niet in de oplopende reeks passen, tellen niet mee en worden gemeld. Verbruik volgens de volle-tankmethode: km tussen de laatste tankbeurt vóór de week en de laatste tankbeurt in de week, gedeeld door de liters die daartussen getankt zijn. Weken worden afgekapt op de maand, zodat de weken samen het maandtotaal geven.</p>
+    </div>
+  </section>
+
   <!-- ============ TECHNISCH OVERZICHT ============ -->
   <section id="pane-techniek" role="tabpanel" aria-labelledby="tab-techniek" hidden>
     <div class="panel">
@@ -643,6 +668,13 @@ dialog::backdrop{background:rgba(10,14,11,.5)}
   <div id="bt-sluit" hidden class="confirm" style="justify-content:space-between">Sluiten zonder op te slaan? Wat is uitgelezen gaat verloren. <span style="display:flex;gap:6px"><button class="btn small danger" type="button" id="bt-sluit-ja">Ja, sluiten</button><button class="btn small" type="button" id="bt-sluit-nee">Nee</button></span></div>
   <div id="bt-body" style="display:grid;gap:10px"></div>
   <div class="actions"><button class="btn primary" type="button" id="bt-ok">Akkoord, sla tankbeurten op</button></div>
+</div></dialog>
+
+<dialog id="bm-dlg" style="width:min(1400px,calc(100vw - 16px))"><div class="dlg">
+  <div class="dlg-h"><h2>Maandoverzichten brandstof controleren</h2><div class="vensterknoppen"><button class="vk-btn" type="button" id="bm-close" title="Sluiten" aria-label="Sluiten">&#215;</button></div></div>
+  <div id="bm-sluit" hidden class="confirm" style="justify-content:space-between">Sluiten zonder op te slaan? Wat is uitgelezen gaat verloren. <span style="display:flex;gap:6px"><button class="btn small danger" type="button" id="bm-sluit-ja">Ja, sluiten</button><button class="btn small" type="button" id="bm-sluit-nee">Nee</button></span></div>
+  <div id="bm-body" style="display:grid;gap:14px"></div>
+  <div class="actions"><button class="btn primary" type="button" id="bm-ok" disabled>Akkoord, sla op</button></div>
 </div></dialog>
 
 <!-- Wagengegevens -->
@@ -873,7 +905,7 @@ function applyRole(){
   rc.textContent = S.role==='beheerder' ? 'Beheerder' : 'Chauffeur'; rc.className = 'chip';
   $('#btn-stam').hidden = !S.beheer;
   $('#tab-beheer').hidden = !S.beheer;
-  ['brandstof','techniek','kostprijs'].forEach(t=>{ $('#tab-'+t).hidden = !S.beheer; });
+  ['brandstof','bmaand','techniek','kostprijs'].forEach(t=>{ $('#tab-'+t).hidden = !S.beheer; });
   zetPModus(pModus);
   $('#u-sal-wrap').hidden = !S.beheer;
   if (!S.beheer && huidigeTab==='beheer') showTab('uren');
@@ -930,6 +962,7 @@ function subscribeGlobal(){
     globalUnsubs.push(Store.subDoc('beheer/nmbrs', d=>{ S.nmbrs = d || {}; renderNmbrs(); }));
     globalUnsubs.push(Store.subDoc('beheer/backup', d=>{ S.backup = d || {}; renderBackup(); }));
     globalUnsubs.push(Store.subCol('beheer/vloot/tank', l=>{ VL.tank = Object.fromEntries(l.map(x=>[x.id,x.data])); renderVloot(); }));
+    globalUnsubs.push(Store.subCol('beheer/vloot/maandstaat', l=>{ BM.staten = Object.fromEntries(l.map(x=>[x.id,x.data])); if (huidigeTab==='bmaand') renderBm(); }));
     globalUnsubs.push(Store.subCol('beheer/vloot/onderhoud', l=>{ VL.onderh = Object.fromEntries(l.map(x=>[x.id,x.data])); renderVloot(); }));
     globalUnsubs.push(Store.subCol('beheer/vloot/wagens', l=>{ VL.wagen = Object.fromEntries(l.map(x=>[x.id,x.data])); renderVloot(); renderPlan(); renderPlanregels(); }));
     globalUnsubs.push(Store.subDoc('beheer/planning', d=>{ PL.inst = Object.assign({kraanNodig:{Rondhout:true, Stamhout:true, Industriehout:true}, derden:[]}, d||{}); renderPlan(); renderPlanregels(); }));
@@ -1004,14 +1037,15 @@ document.addEventListener('keydown', e => { if (e.key==='Escape' && $('#menu-lij
   const tabs = [...document.querySelectorAll('#menu-lijst .tab:not([hidden])')]; const i = tabs.indexOf(document.activeElement);
   const n = tabs[(i + (e.key==='ArrowDown' ? 1 : -1) + tabs.length) % tabs.length]; if (n){ e.preventDefault(); n.focus(); } });
 function showTab(which){
-  if (['beheer','brandstof','techniek','kostprijs'].includes(which) && !S.beheer) which = 'uren';
+  if (['beheer','brandstof','bmaand','techniek','kostprijs'].includes(which) && !S.beheer) which = 'uren';
   huidigeTab = which;
-  for (const t of ['overzicht','uren','plan','brandstof','techniek','kostprijs','beheer']){ $('#tab-'+t).setAttribute('aria-selected', String(t===which)); $('#pane-'+t).hidden = t!==which; }
+  for (const t of ['overzicht','uren','plan','brandstof','bmaand','techniek','kostprijs','beheer']){ $('#tab-'+t).setAttribute('aria-selected', String(t===which)); $('#pane-'+t).hidden = t!==which; }
   $('#menu-huidig').textContent = $('#tab-'+which).textContent; menuDicht();
   try{ localStorage.setItem(LKEY+'-tab', which); }catch{}
   if (which==='beheer') loadBeheer();
   if (which==='brandstof' || which==='techniek') renderVloot();
   if (which==='kostprijs') kpLaad();
+  if (which==='bmaand') renderBm();
   if (which==='overzicht') ovLaad();
 }
 $('#tab-overzicht').onclick = () => showTab('overzicht');
@@ -1019,12 +1053,13 @@ $('#tab-uren').onclick = () => showTab('uren');
 $('#tab-plan').onclick = () => showTab('plan');
 $('#tab-beheer').onclick = () => showTab('beheer');
 $('#tab-brandstof').onclick = () => showTab('brandstof');
+$('#tab-bmaand').onclick = () => showTab('bmaand');
 $('#tab-techniek').onclick = () => showTab('techniek');
 $('#tab-kostprijs').onclick = () => showTab('kostprijs');
 function startTab(){
   let t = 'overzicht';
-  const h = location.hash.slice(1); if (h==='planning') t='plan'; else if (['overzicht','uren','beheer','brandstof','techniek','kostprijs'].includes(h)) t=h;
-  showTab(['overzicht','uren','plan','beheer','brandstof','techniek','kostprijs'].includes(t) ? t : 'overzicht');
+  const h = location.hash.slice(1); if (h==='planning') t='plan'; else if (['overzicht','uren','beheer','brandstof','bmaand','techniek','kostprijs'].includes(h)) t=h;
+  showTab(['overzicht','uren','plan','beheer','brandstof','bmaand','techniek','kostprijs'].includes(t) ? t : 'overzicht');
 }
 
 /* ---------- instellingen ---------- */
@@ -4057,7 +4092,338 @@ $('#bt-ok').onclick = async () => {
   finally{ btn.disabled = false; btn.textContent = 'Akkoord, sla tankbeurten op'; }
 };
 
-function renderVloot(){ ovVerversen(); if (!S.beheer) return; renderBrandstof(); renderTechniek(); if (huidigeTab==='kostprijs') renderKostprijs(); }
+/* ---- BRANDSTOF MAANDOVERZICHTEN (handgeschreven maandstaat per kenteken → verbruik per week) ----
+   Opslag: beheer/vloot/maandstaat/<norm kenteken>-<YYYY-MM> = {kenteken, wagen, maand, rijen:[{dag,kmBegin,kmEinde,liters,station,adblue,zeker,opmerking}], fotos[], bron, aangemaakt}
+   Niets wordt opgeslagen zonder Akkoord. Rekenen gebeurt pas bij het tonen, zodat een correctie meteen doorwerkt. */
+const BM = { staten:{}, maand:'' }; let BMD = null, bmFiles = [], bmCtl = null, bmPdf = null;
+const BM_PDF = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+function bmLaadPdf(){
+  if (window.pdfjsLib && window.pdfjsWorker) return Promise.resolve(window.pdfjsLib);
+  if (!bmPdf) bmPdf = new Promise((res, rej) => {
+    const laad = src => new Promise((ok, nee) => { const sc = document.createElement('script'); sc.src = src; sc.onload = ok; sc.onerror = () => nee(new Error('laden mislukt')); document.head.appendChild(sc); });
+    // eerst de worker-code in de pagina zelf, dan draait pdf.js zonder aparte worker (werkt ook in een afgeschermde pagina)
+    laad(BM_PDF + 'pdf.worker.min.js').then(() => laad(BM_PDF + 'pdf.min.js')).then(() => { const L = window.pdfjsLib; if (!L) throw new Error('pdf.js ontbreekt'); L.GlobalWorkerOptions.workerSrc = BM_PDF + 'pdf.worker.min.js'; res(L); })
+      .catch(e => { bmPdf = null; rej(e); });
+  });
+  return bmPdf;
+}
+async function bmPdfPaginas(file, max){
+  const L = await bmLaadPdf(); const doc = await L.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise; const uit = [];
+  for (let i = 1; i <= doc.numPages; i++){
+    const pg = await doc.getPage(i); const v0 = pg.getViewport({ scale: 1 }); const v = pg.getViewport({ scale: Math.min(5, max / Math.max(v0.width, v0.height)) });
+    const cv = document.createElement('canvas'); cv.width = Math.round(v.width); cv.height = Math.round(v.height); const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+    await pg.render({ canvasContext: ctx, viewport: v }).promise; uit.push(await new Promise(r => cv.toBlob(b => r(b), 'image/jpeg', 0.88)));
+  }
+  return uit;
+}
+const bmKey = (kent, maand) => norm(kent) + '-' + maand;
+const bmDagenIn = maand => { const [y, m] = maand.split('-').map(Number); return new Date(y, m, 0).getDate(); };
+function bmLev(a, b){ const d = Array.from({length: a.length + 1}, (_, i) => [i]); for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + (a[i-1] === b[j-1] ? 0 : 1)); return d[a.length][b.length]; }
+/* kenteken op het formulier → wagen uit het wagenpark (exact, of met één teken verschil als voorstel) */
+function bmWagenBij(kent){ const k = norm(kent); if (!k) return { wagen: null, lijkt: null };
+  const exact = S.stam.wagens.find(w => norm(w.kenteken) === k); if (exact) return { wagen: exact, lijkt: null };
+  const kand = S.stam.wagens.map(w => [w, bmLev(norm(w.kenteken), k)]).filter(([, d]) => d <= 1).sort((a, b) => a[1] - b[1]);
+  return { wagen: null, lijkt: kand.length === 1 ? kand[0][0] : null }; }
+function bmStatus(){ const n = bmFiles.length; const c = $('#bm-n'); c.hidden = !n;
+  c.textContent = n ? bmFiles.map(f => f.name).slice(0, 2).join(', ') + (n > 2 ? ` en ${n - 2} meer` : '') : '';
+  $('#bm-go').disabled = (!n && !BMD) || !S.sample; $('#bm-go').textContent = BMD ? 'Controle verder' : 'Uitlezen met Claude';
+  $('#bm-go').title = S.sample ? '' : 'Uitlezen met Claude is in deze weergave niet beschikbaar'; }
+$('#bm-file').addEventListener('change', e => { bmFiles = [...(e.target.files || [])]; e.target.value = ''; bmStatus(); });
+function bmPrompt(nr, totaal){
+  const kent = wagens().map(w => w.kenteken).join(', ') || '(geen)';
+  return `Je leest pagina ${nr} van ${totaal} uit een stapel gescande, handgeschreven maandoverzichten brandstof van een Nederlands houttransportbedrijf. Elke pagina is één formulier voor één vrachtwagen en één maand.
+Bekende kentekens van het bedrijf: ${kent}. Vandaag is ${fmtDatum(new Date())}.
+
+Het formulier heeft bovenaan "Kenteken" en "Maand" en een tabel met een regel per dag (1 t/m 31): Dag (weekdag), Datum tanken, KM stand begin, KM stand einde, Verschil KM, Liters getankt, Verbruik per km, AdBlue. Chauffeurs vullen het verschillend in:
+- soms per tankbeurt een begin- en eindstand (begin = stand bij de vorige tankbeurt);
+- soms elke dag een km-stand (begin en/of einde van de dag), ook op dagen zonder tanken;
+- soms staat het tankstation (bijv. HBT, IDS, Pollo, Aral) in een andere kolom, zoals "Verbruik per km" of "Verschil KM";
+- soms schuift het handschrift een halve regel op; gebruik dan de weekdag en het datumnummer waar het het best bij past en zeg dat in "opmerking".
+De afbeeldingen: eerst de hele pagina, soms gevolgd door een uitvergrote bovenste en onderste helft van dezelfde pagina. Tel geen regel dubbel.
+
+Geef:
+- "kenteken" zoals geschreven, in Nederlands formaat met streepjes, en "kentekenZeker". Lijkt het duidelijk op een bekend kenteken, geef dat bekende kenteken. Geen kenteken ingevuld: "".
+- "maand" (1–12) en "jaar". Ontbreekt het jaar, neem het meest recente jaar waarin die maand niet in de toekomst ligt. Geen maand ingevuld: null.
+- per ingevulde dag één regel: "dag" (1–31), "kmBegin" en "kmEinde" (gehele getallen uit de kolommen begin en einde; null als leeg), "liters" diesel (meerdere tankbeurten op één regel: tel op en noem ze in "opmerking"), "station", "adblue" (liters of null), "doorgestreept" (true als de hele regel is doorgestreept), "zeker" ("hoog", "middel" of "laag") en "opmerking".
+- Neem geschreven verschil- en verbruikcijfers en de totaalregel niet op als km-stand; noem ze hooguit in "opmerking".
+- Een doorgestreepte losse waarde telt niet; gebruik de verbeterde waarde.
+- Verzin niets. Twijfel je over een cijfer, geef je beste lezing, zet "zeker" op "laag" en zeg wat onduidelijk is.
+
+Antwoord met alleen JSON in precies deze vorm:
+{"kenteken":"BB-773-B","kentekenZeker":"hoog","maand":9,"jaar":2026,"rijen":[{"dag":4,"kmBegin":201856,"kmEinde":201974,"liters":610,"station":"HBT","adblue":74,"doorgestreept":false,"zeker":"hoog","opmerking":""}],"algemeen":"korte opmerking over de leesbaarheid"}`;
+}
+function bmNormPagina(p, res){
+  res = res || {}; const n = v => { const x = getal(v); return Number.isFinite(x) ? x : null; };
+  const kt = String(res.kenteken || '').trim(); const m = bmWagenBij(kt);
+  p.kentekenGelezen = kt; p.kentekenZeker = zekerNorm(res.kentekenZeker);
+  if (m.wagen){ p.kenteken = m.wagen.kenteken; p.wagen = m.wagen.id; } else { p.kenteken = kt.toUpperCase(); p.wagen = ''; p.lijkt = m.lijkt ? m.lijkt.id : ''; }
+  const mm = Math.round(n(res.maand)), jj = Math.round(n(res.jaar));
+  p.maand = mm >= 1 && mm <= 12 ? `${jj >= 2020 && jj <= 2100 ? jj : new Date().getFullYear()}-${pad(mm)}` : ''; p.maandGelezen = !!p.maand;
+  p.algemeen = String(res.algemeen || '');
+  p.rijen = (Array.isArray(res.rijen) ? res.rijen : []).map(r => { r = r || {}; const km = v => { const x = n(v); return x != null ? Math.round(x) : null; };
+    return { dag: Math.round(n(r.dag)) || null, kmBegin: km(r.kmBegin), kmEinde: km(r.kmEinde), liters: n(r.liters), station: String(r.station || ''), adblue: n(r.adblue),
+      mee: r.doorgestreept !== true, zeker: zekerNorm(r.zeker), opmerking: String(r.opmerking || '') + (r.doorgestreept === true ? (r.opmerking ? '; ' : '') + 'doorgestreept' : '') }; })
+    .filter(r => r.dag || r.kmBegin != null || r.kmEinde != null || r.liters != null);
+}
+/* regel 31 in een maand van 30 dagen (enz.) hoort bij de laatste dag */
+function bmDagGrens(p){ if (!p.maand) return; const max = bmDagenIn(p.maand);
+  p.rijen.forEach(r => { if (r.dag > max && r.dag <= 31 && !r.dagGeschoven){ r.opmerking = `staat op regel ${r.dag}; ${MAANDEN[Number(p.maand.slice(5)) - 1]} heeft ${max} dagen` + (r.opmerking ? '; ' + r.opmerking : ''); r.dag = max; r.dagGeschoven = true; if (r.zeker === 'hoog') r.zeker = 'middel'; } }); }
+
+/* ---------- rekenen ----------
+   Tijdas in werkdagen (ma–vr 1, za 0,1, zo 0), zodat een stand van vrijdagavond en maandagochtend vrijwel op hetzelfde punt liggen.
+   Km-standen worden een oplopende reeks; standen die er niet in passen (lager dan eerder, of meer dan 1.300 km per werkdag) tellen niet mee. */
+const BM_GEWICHT = [0, 1, 1, 1, 1, 1, 0.1];  // index = getDay(): zo, ma … za
+function bmT(datum, moment){ // datum 'YYYY-MM-DD', moment 0 = begin dag, 1 = einde dag
+  const d = parseYmd(datum); const ref = new Date(2020, 0, 6); const dagen = Math.round((d - ref) / 864e5); const weken = Math.floor(dagen / 7);
+  let t = weken * 5.1; for (let i = 0, x = addDays(ref, weken * 7); i < dagen - weken * 7; i++, x = addDays(x, 1)) t += BM_GEWICHT[x.getDay()];
+  return t + moment * BM_GEWICHT[d.getDay()]; }
+function bmReeks(staten){
+  const pnt = [], tank = [];
+  for (const st of staten){ const rijen = [...(st.rijen || [])].filter(r => r.dag).sort((a, b) => a.dag - b.dag); let vorige = null;
+    for (const r of rijen){ const datum = `${st.maand}-${pad(r.dag)}`;
+      // oud formulier: begin = stand bij de vorige tankbeurt; die dubbele stand niet nog eens op deze dag zetten
+      // begin ver onder einde (meer dan een dag rijden): dat is de stand bij de vorige tankbeurt, dus eerder dan deze dag
+      if (r.kmBegin != null && r.kmBegin !== vorige){ const ver = r.kmEinde != null && r.kmEinde - r.kmBegin > 1000;
+        pnt.push({ t: ver ? bmT(datum, 1) - (r.kmEinde - r.kmBegin) / 700 : bmT(datum, 0), km: r.kmBegin, datum, waar: ver ? 'begin (vorige tankbeurt)' : 'begin', vorigeTank: ver }); }
+      if (r.kmEinde != null) pnt.push({ t: bmT(datum, 1), km: r.kmEinde, datum, waar: 'einde' });
+      const laatste = r.kmEinde != null ? r.kmEinde : r.kmBegin; if (laatste != null) vorige = laatste;
+      if (r.liters > 0 || r.adblue > 0) tank.push({ datum, t: bmT(datum, r.kmEinde != null ? 1 : 0.5), kmEigen: r.kmEinde, liters: Number(r.liters) || 0, adblue: Number(r.adblue) || 0, station: r.station || '' });
+    } }
+  pnt.sort((a, b) => a.t - b.t || a.km - b.km);
+  // langste oplopende, aannemelijke reeks (dynamisch programmeren)
+  const n = pnt.length, lang = Array(n).fill(1), van = Array(n).fill(-1);
+  const kan = (a, b) => b.km >= a.km && b.km - a.km <= 1300 * Math.max(b.t - a.t, 1) + 50;
+  for (let j = 0; j < n; j++) for (let i = 0; i < j; i++) if (kan(pnt[i], pnt[j]) && lang[i] + 1 > lang[j]){ lang[j] = lang[i] + 1; van[j] = i; }
+  let eind = -1; for (let j = 0; j < n; j++) if (eind < 0 || lang[j] > lang[eind] || (lang[j] === lang[eind] && pnt[j].t > pnt[eind].t)) eind = j;
+  const goed = new Set(); for (let j = eind; j >= 0; j = van[j]) goed.add(j);
+  const reeks = pnt.filter((_, i) => goed.has(i)), weg = pnt.filter((_, i) => !goed.has(i));
+  // stand op tijdstip t: lineair tussen de omliggende standen (op de werkdag-as)
+  const stand = t => { if (!reeks.length || t < reeks[0].t - 1e-9 || t > reeks[reeks.length - 1].t + 1e-9) return null;
+    let i = 0; while (i < reeks.length - 1 && reeks[i + 1].t < t) i++;
+    const a = reeks[i], b = reeks[Math.min(i + 1, reeks.length - 1)]; if (b.t <= a.t + 1e-9) return { km: t >= b.t ? b.km : a.km, gat: 0 };
+    return { km: a.km + (b.km - a.km) * (t - a.t) / (b.t - a.t), gat: b.t - a.t }; };
+  tank.forEach(f => { const s = f.kmEigen != null && reeks.some(p => p.km === f.kmEigen && Math.abs(p.t - f.t) < 1e-9) ? { km: f.kmEigen, gat: 0 } : stand(f.t); f.km = s ? s.km : null; f.kmGeschat = !!s && s.gat > 1.15; });
+  tank.sort((a, b) => a.t - b.t);
+  return { reeks, weg, tank, stand };
+}
+/* één periode [van, tot) (datums YYYY-MM-DD, tot = dag ná de periode) */
+function bmPeriode(R, van, tot){
+  const T0 = bmT(van, 0), T1 = bmT(tot, 0); const uit = { km: null, kmNoot: [], liters: 0, adblue: 0, tank: 0, verbruik: null, vKm: 0, vL: 0, vNoot: '' };
+  const f = R.tank.filter(x => x.datum >= van && x.datum < tot); f.forEach(x => { uit.liters += x.liters; uit.adblue += x.adblue; if (x.liters > 0) uit.tank++; });
+  if (R.reeks.length >= 2){
+    const eerste = R.reeks[0], laatste = R.reeks[R.reeks.length - 1];
+    const a = Math.max(T0, eerste.t), b = Math.min(T1, laatste.t);
+    if (b > a){ const sa = R.stand(a), sb = R.stand(b); uit.km = Math.round(sb.km - sa.km);
+      if (a > T0 + 0.05) uit.kmNoot.push(`vanaf ${fmtDag(parseYmd(eerste.datum))}`);
+      if (b < T1 - 0.2) uit.kmNoot.push(`tot ${fmtDag(parseYmd(laatste.datum))}`);
+      if (sa.gat > 1.15 || sb.gat > 1.15) uit.kmNoot.push('geschat'); }
+    else if (T1 <= eerste.t || T0 >= laatste.t) uit.kmNoot.push('geen km-standen in deze periode');
+  } else uit.kmNoot.push('te weinig km-standen');
+  // verbruik volgens de volle-tankmethode: km tussen de laatste tankbeurt vóór de periode en de laatste in de periode, gedeeld door de liters daartussen
+  const metKm = R.tank.filter(x => x.liters > 0 && x.km != null);
+  const inPer = metKm.filter(x => x.datum >= van && x.datum < tot);
+  if (inPer.length){ const voor = metKm.filter(x => x.t < inPer[0].t && x.datum < van); const start = voor.length ? voor[voor.length - 1] : inPer[0];
+    const eind = inPer[inPer.length - 1]; const tussen = R.tank.filter(x => x.liters > 0 && x.t > start.t && x.t <= eind.t && x !== start);
+    const km = eind.km - start.km, l = tussen.reduce((s, x) => s + x.liters, 0);
+    if (km > 0 && l > 0){ uit.vKm = Math.round(km); uit.vL = l; uit.verbruik = l / km * 100;
+      if ([start, eind].some(x => x.kmGeschat)) uit.vNoot = 'km bij het tanken geschat';
+      if (uit.verbruik < 20 || uit.verbruik > 60) uit.vNoot = `${nl(uit.verbruik, 1)} l/100 km is onwaarschijnlijk; controleer de staat`; }
+    else if (!voor.length && inPer.length === 1) uit.vNoot = 'eerste tankbeurt; verbruik vanaf de volgende';
+  }
+  return uit;
+}
+function bmWekenVan(maand){ // ISO-weken, afgekapt op de maand
+  const start = parseYmd(maand + '-01'), na = new Date(start.getFullYear(), start.getMonth() + 1, 1); const uit = [];
+  for (let d = start; d < na; ){ const ma = mondayOf(d); const volg = addDays(ma, 7); const tot = volg < na ? volg : na; const w = isoWeek(d);
+    uit.push({ week: w.week, jaar: w.year, van: ymd(d), tot: ymd(tot), label: `${d.getDate()}–${addDays(tot, -1).getDate()} ${MAANDEN[d.getMonth()].slice(0, 3)}` }); d = tot; }
+  return uit; }
+function bmPerKenteken(){ const g = {}; Object.entries(BM.staten).forEach(([id, s]) => { if (!s || !s.maand) return; const k = norm(s.kenteken) || id; (g[k] = g[k] || { kenteken: s.kenteken, wagen: s.wagen, staten: [] }).staten.push(Object.assign({ id }, s)); }); return g; }
+
+/* ---------- tabblad ---------- */
+function bmMaanden(){ const m = new Set(Object.values(BM.staten).map(s => s && s.maand).filter(Boolean)); const nu = new Date(); m.add(`${nu.getFullYear()}-${pad(nu.getMonth() + 1)}`); return [...m].sort().reverse(); }
+function renderBm(){
+  if (!S.beheer || huidigeTab !== 'bmaand') return; bmStatus();
+  const sel = $('#bm-per'); const cur = BM.maand || sel.value; const ms = bmMaanden(); const met = new Set(Object.values(BM.staten).map(s => s && s.maand));
+  sel.innerHTML = ms.map(m => `<option value="${m}">${maandNaam(m)}${met.has(m) ? '' : ' (leeg)'}</option>`).join('');
+  sel.value = ms.includes(cur) ? cur : (ms.find(m => met.has(m)) || ms[0]);
+  const maand = sel.value; const weken = bmWekenVan(maand); const groep = bmPerKenteken();
+  const rijen = Object.values(groep).filter(g => g.staten.some(s => s.maand === maand)).sort((a, b) => (b.wagen ? 1 : 0) - (a.wagen ? 1 : 0) || a.kenteken.localeCompare(b.kenteken, 'nl'));
+  if (!rijen.length){ $('#bm-out').innerHTML = `<div class="empty" style="padding:16px"><b>Nog geen maandoverzichten voor ${esc(maandNaam(maand))}</b>Kies hierboven de gescande PDF of foto’s van de maandoverzichten en klik op “Uitlezen met Claude”. Je controleert alles voordat het wordt opgeslagen.</div>`; return; }
+  const fmtKm = v => v == null ? '—' : nl(v);
+  const kaart = [];
+  const mat = rijen.map(g => { const R = bmReeks(g.staten); const per = weken.map(w => bmPeriode(R, w.van, w.tot)); const tot = bmPeriode(R, maand + '-01', ymd(new Date(Number(maand.slice(0, 4)), Number(maand.slice(5)), 1)));
+    const staat = g.staten.find(s => s.maand === maand);
+    const meld = []; if (!g.wagen) meld.push(['warn', `${g.kenteken || 'Zonder kenteken'} staat niet in het wagenpark. Klopt het kenteken? Je kunt het aanpassen via “Staat bekijken”.`]);
+    R.weg.forEach(p => meld.push(['warn', `Km-stand ${nl(p.km)} op ${fmtDag(parseYmd(p.datum))} (${p.waar}) past niet in de reeks en telt niet mee.`]));
+    per.concat([tot]).forEach((x, i) => { if (x.vNoot && /onwaarschijnlijk/.test(x.vNoot)) meld.push(['bad', `${i < per.length ? 'Week ' + weken[i].week : 'Maand'}: ${x.vNoot}.`]); });
+    const cel = x => `<td class="n">${fmtKm(x.km)}${x.kmNoot.length ? `<small style="display:block;color:var(--muted)">${esc(x.kmNoot.join('; '))}</small>` : ''}</td>
+      <td class="n">${x.liters ? nl(x.liters, 0) : '—'}</td><td class="n">${x.verbruik ? nl(100 / x.verbruik, 2) : '—'}</td><td class="n">${x.verbruik ? nl(x.verbruik, 1) : '—'}${x.vNoot ? `<small style="display:block;color:${/onwaarsch/.test(x.vNoot) ? 'var(--bad)' : 'var(--muted)'}">${esc(x.vNoot)}</small>` : ''}</td><td class="n">${x.adblue ? nl(x.adblue, 1) : '—'}</td>`;
+    kaart.push(`<div class="panel" style="margin-top:12px;padding:12px">
+      <div class="toolbar"><h3 style="margin:0">${esc(g.kenteken || 'Zonder kenteken')}</h3>${g.wagen ? '' : '<span class="chip warn">niet in wagenpark</span>'}<span class="sp"></span>
+        <button class="btn small" type="button" data-bmopen="${esc(staat.id)}">Staat bekijken</button><button class="btn small danger" type="button" data-bmdel="${esc(staat.id)}">Verwijderen</button></div>
+      <div class="scroll"><table class="vl"><thead><tr><th>Week</th><th class="n">Km gereden</th><th class="n">Liters</th><th class="n">Km per liter</th><th class="n">Liter per 100 km</th><th class="n">AdBlue (l)</th></tr></thead>
+      <tbody>${per.map((x, i) => `<tr><td>W${weken[i].week} <small style="color:var(--muted)">${esc(weken[i].label)}</small></td>${cel(x)}</tr>`).join('')}</tbody>
+      <tfoot><tr><th>${esc(maandNaam(maand))}</th>${cel(tot).replace(/<td/g, '<th').replace(/<\/td>/g, '</th>')}</tr></tfoot></table></div>
+      ${meld.length ? `<div class="list" style="margin-top:8px">${meld.map(([k, t]) => `<div class="msg ${k}">${esc(t)}</div>`).join('')}</div>` : ''}</div>`);
+    return { g, per, tot }; });
+  $('#bm-out').innerHTML = `<div class="scroll"><table class="vl"><thead><tr><th>Kenteken</th>${weken.map(w => `<th class="n">W${w.week}<small style="display:block;font-weight:400;color:var(--muted)">${esc(w.label)}</small></th>`).join('')}<th class="n">${esc(maandNaam(maand))}</th></tr></thead>
+    <tbody>${mat.map(({ g, per, tot }) => `<tr><td><b>${esc(g.kenteken || '—')}</b></td>${per.concat([tot]).map(x => `<td class="n">${x.verbruik ? `<b>${nl(x.verbruik, 1)}</b> l/100` : '—'}<small style="display:block;color:var(--muted)">${x.km != null ? nl(x.km) + ' km' : ''}${x.liters ? ' · ' + nl(x.liters) + ' l' : ''}</small></td>`).join('')}</tr>`).join('')}</tbody></table></div>
+    ${kaart.join('')}`;
+}
+$('#bm-per').addEventListener('change', e => { BM.maand = e.target.value; renderBm(); });
+$('#bm-out').addEventListener('click', async e => {
+  const o = e.target.closest('[data-bmopen]'), d = e.target.closest('[data-bmdel]');
+  if (o){ const st = BM.staten[o.dataset.bmopen]; if (!st) return; if (BMD) return toast('Rond eerst de lopende controle af.');
+    let blob = null; if (st.fotos && st.fotos[0]){ try{ blob = await fotoBlob(st.fotos[0]); }catch{} }
+    BMD = { bewerk: o.dataset.bmopen, paginas: [{ nr: 1, blob, url: blob ? URL.createObjectURL(blob) : '', status: 'klaar', kenteken: st.kenteken, wagen: st.wagen || '', maand: st.maand, maandGelezen: true, kentekenGelezen: st.kenteken, kentekenZeker: 'hoog', algemeen: '',
+      rijen: (st.rijen || []).map(r => Object.assign({ mee: true, zeker: 'hoog', opmerking: '' }, r)), mee: true, foto: st.fotos || [] }] };
+    $('#bm-dlg').showModal(); toonBm(); bmStatus(); }
+  if (d){ const st = BM.staten[d.dataset.bmdel]; if (!st) return; if (!d.dataset.zeker){ d.dataset.zeker = '1'; d.textContent = 'Zeker verwijderen?'; setTimeout(() => { if (d.isConnected){ delete d.dataset.zeker; d.textContent = 'Verwijderen'; } }, 4000); return; }
+    try{ await Store.del('beheer/vloot/maandstaat/' + d.dataset.bmdel); toast(`Maandstaat ${st.kenteken} ${maandNaam(st.maand)} verwijderd.`); }catch(err){ toast(errMsg(err)); } }
+});
+
+/* ---------- uitlezen ---------- */
+$('#bm-go').onclick = async () => {
+  if (BMD){ if (!$('#bm-dlg').open) $('#bm-dlg').showModal(); return toonBm(); }
+  if (!bmFiles.length) return toast('Kies eerst de PDF of foto’s van de maandoverzichten.');
+  if (!S.sample) return toast('Uitlezen met Claude is in deze weergave niet beschikbaar.');
+  let lim = null; try{ lim = await S.sample.limits(); }catch{} if (!lim || !lim.images) return toast('Afbeeldingen naar Claude sturen is in deze weergave niet beschikbaar.');
+  const btn = $('#bm-go'); btn.disabled = true; btn.textContent = 'Pagina’s voorbereiden…'; bmCtl = new AbortController(); const ctl = bmCtl;
+  try{
+    const blobs = [];
+    for (const f of bmFiles){
+      if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)){ try{ blobs.push(...await bmPdfPaginas(f, 2400)); }catch(err){ console.warn('PDF openen mislukt', err); toast(`${f.name}: de PDF kon niet worden geopend. Probeer het opnieuw of upload foto’s van de pagina’s.`); } }
+      else blobs.push(await verklein(f, 2400));
+    }
+    if (!blobs.length) return;
+    BMD = { paginas: blobs.map((b, i) => ({ nr: i + 1, blob: b, url: URL.createObjectURL(b), status: 'wacht', kenteken: '', wagen: '', maand: '', rijen: [], mee: true })) };
+    bmFiles = []; $('#bm-dlg').showModal(); toonBm();
+    const max = lim.images.maxCount || 1; const delen = max >= 3; let volgende = 0;
+    const werker = async () => { while (volgende < BMD.paginas.length && !ctl.signal.aborted){ const p = BMD.paginas[volgende++]; p.status = 'lezen'; toonBmPagina(p);
+      try{ const imgs = (await snijBlobs(p.blob, delen)).slice(0, max);
+        const res = await S.sample.json(bmPrompt(p.nr, BMD.paginas.length), { images: imgs, modelTier: 'complex', signal: ctl.signal, cache: false });
+        bmNormPagina(p, res); p.status = 'klaar'; }
+      catch(e){ const c = e && e.code; if (c === 'cancelled' || ctl.signal.aborted) return; p.status = 'fout'; p.mee = false;
+        p.fout = c === 'rate_limited' ? 'Even te veel verzoeken of je gebruikslimiet is bereikt.' : c === 'invalid_json' ? 'Claude gaf geen bruikbaar resultaat.' : c === 'not_granted' ? 'Toestemming om Claude te gebruiken is geweigerd.' : 'Uitlezen is mislukt.'; }
+      if (BMD) { bmAanvullen(); toonBmKop(); BMD.paginas.forEach(toonBmPagina); } } };
+    await Promise.all([werker(), werker(), werker()]);
+  }catch(err){ toast(errMsg(err)); }
+  finally{ if (bmCtl === ctl) bmCtl = null; bmStatus(); if (BMD) toonBmKop(); }
+};
+/* ontbrekende maand: neem de maand die op de andere pagina's staat (wordt gemeld) */
+function bmAanvullen(){ const tel = {}; BMD.paginas.forEach(p => { if (p.maandGelezen && p.maand) tel[p.maand] = (tel[p.maand] || 0) + 1; });
+  const vaak = Object.entries(tel).sort((a, b) => b[1] - a[1])[0];
+  BMD.paginas.forEach(p => { if (p.status === 'klaar' && !p.maand && !p.maandGelezen && vaak){ p.maand = vaak[0]; p.maandAangevuld = true; } if (p.status === 'klaar') bmDagGrens(p); }); }
+function bmControle(p){
+  const fout = [], waar = []; const rij = p.rijen.map(() => []), rijW = p.rijen.map(() => []);
+  if (!p.kenteken) fout.push('kenteken ontbreekt; vul het in of kies een wagen');
+  else if (!p.wagen) waar.push(`${p.kenteken} staat niet in het wagenpark${p.lijkt ? `; bedoel je ${waKent(p.lijkt)}?` : '.'} Het wordt los onder dit kenteken opgeslagen.`);
+  if (p.kentekenZeker && p.kentekenZeker !== 'hoog' && p.kenteken) waar.push(`Kenteken is ${p.kentekenZeker === 'laag' ? 'slecht' : 'niet goed'} leesbaar (gelezen: “${p.kentekenGelezen || '—'}”). Vergelijk met de foto.`);
+  if (!p.maand) fout.push('maand ontbreekt'); else if (p.maandAangevuld) waar.push(`Maand staat niet op het formulier; ${maandNaam(p.maand)} aangenomen zoals op de andere pagina’s.`);
+  if (p.maand){ const max = bmDagenIn(p.maand);
+    p.rijen.forEach((r, i) => { if (!r.mee) return; if (!r.dag || r.dag < 1 || r.dag > max) rij[i].push('dag bestaat niet in deze maand');
+      if (r.liters != null && (r.liters <= 0 || r.liters > 1500)) rij[i].push('liters onwaarschijnlijk');
+      if (r.kmBegin != null && r.kmEinde != null && r.kmEinde < r.kmBegin) rij[i].push('einde lager dan begin'); });
+    const R = bmReeks([{ maand: p.maand, rijen: p.rijen.filter(r => r.mee && r.dag >= 1 && r.dag <= max) }]);
+    R.weg.forEach(w => { const i = p.rijen.findIndex(r => r.mee && `${p.maand}-${pad(r.dag)}` === w.datum && (w.waar.startsWith('begin') ? r.kmBegin : r.kmEinde) === w.km); if (i >= 0) rijW[i].push(`km-stand ${w.waar.split(' ')[0]} past niet in de reeks; telt niet mee`); });
+    if (R.reeks.length < 2) waar.push('Minder dan twee bruikbare km-standen: km en verbruik per week zijn niet te berekenen.');
+    else if (R.reeks.length < 5) waar.push(`Maar ${R.reeks.length} km-standen: km per week worden geschat.`);
+    const k = bmKey(p.kenteken, p.maand); if (p.kenteken && BM.staten[k] && BMD && BMD.bewerk !== k) waar.push(`Er is al een staat voor ${p.kenteken} ${maandNaam(p.maand)} opgeslagen; Akkoord vervangt die.`);
+    const dub = BMD ? BMD.paginas.filter(q => q !== p && q.mee && q.status === 'klaar' && q.kenteken && q.maand && bmKey(q.kenteken, q.maand) === k) : [];
+    if (p.kenteken && dub.length) waar.push(`Pagina ${dub.map(q => q.nr).join(', ')} heeft hetzelfde kenteken en dezelfde maand; de regels worden samengevoegd.`);
+  }
+  return { fout, waar, rij, rijW };
+}
+function toonBmKop(){
+  if (!BMD) return; const P = BMD.paginas; const klaar = P.filter(p => p.status === 'klaar').length, bezig = P.some(p => p.status === 'wacht' || p.status === 'lezen');
+  const ctl = P.filter(p => p.status === 'klaar' && p.mee).map(bmControle); const nf = ctl.filter(c => c.fout.length || c.rij.some(x => x.length)).length, nw = ctl.filter(c => c.waar.length).length;
+  $('#bm-kop').innerHTML = bezig ? `<div class="msg">Claude leest de pagina’s: ${klaar} van ${P.length} klaar. Je kunt de klare pagina’s alvast controleren.</div>`
+    : `<p style="margin:0">${P.length} pagina${P.length === 1 ? '' : '’s'} gelezen. ${nf ? `<b style="color:var(--bad)">${nf} met een fout</b> (rode streep) die je moet verbeteren of uitvinken. ` : ''}${nw ? `${nw} met een opmerking om na te kijken. ` : ''}Vergelijk elke pagina met de scan; pas aan wat niet klopt. Doorgestreepte regels staan uitgevinkt.</p>`;
+  const n = P.filter(p => p.mee && p.status === 'klaar').length; $('#bm-ok').disabled = bezig || !n; $('#bm-ok').textContent = `Akkoord, sla ${n} maandsta${n === 1 ? 'at' : 'ten'} op`;
+}
+function toonBm(){ if (!BMD) return; $('#bm-body').innerHTML = `<div id="bm-kop"></div><div class="legend" style="margin:0"><span><i style="background:var(--ok-soft);border:1px solid var(--ok)"></i>Hoge zekerheid</span><span><i style="background:var(--warn-soft);border:1px solid var(--warn)"></i>Middel</span><span><i style="background:var(--bad-soft);border:1px solid var(--bad)"></i>Laag</span><span><i style="background:var(--bad)"></i>Rode streep: verbeteren of uitvinken</span></div>`
+  + BMD.paginas.map(p => `<section class="bm-pag" data-p="${p.nr}"></section>`).join(''); BMD.paginas.forEach(toonBmPagina); toonBmKop(); $('#bm-body').style.zoom = ocrZoom / 100; }
+function toonBmPagina(p){
+  const el = document.querySelector(`#bm-body section[data-p="${p.nr}"]`); if (!el) return;
+  const kop = `<h3 style="margin:0">Pagina ${p.nr}${p.status === 'klaar' ? ' · ' + esc(p.kenteken || 'geen kenteken') + (p.maand ? ' · ' + esc(maandNaam(p.maand)) : '') : ''}</h3>`;
+  const foto = p.url ? `<a href="${p.url}" target="_blank" rel="noopener" title="Scan groot openen"><img src="${p.url}" alt="Scan van pagina ${p.nr}" class="bm-scan"></a>` : '<div class="empty">Geen scan bewaard</div>';
+  if (p.status !== 'klaar'){ el.innerHTML = `<div class="bm-grid"><div>${foto}</div><div>${kop}<div class="msg ${p.status === 'fout' ? 'bad' : ''}" style="margin-top:8px">${p.status === 'wacht' ? 'Wacht op de beurt…' : p.status === 'lezen' ? 'Claude leest deze pagina…' : esc(p.fout || 'Uitlezen is mislukt.') + ' Deze pagina wordt niet opgeslagen.'}</div></div></div>`; return; }
+  const c = bmControle(p); const fmtN = v => v == null ? '' : String(Math.round(v * 100) / 100).replace('.', ',');
+  const wopt = `<option value="">— niet in wagenpark —</option>` + wagens().map(w => `<option value="${esc(w.id)}"${w.id === p.wagen ? ' selected' : ''}>${esc(w.kenteken)}</option>`).join('');
+  const nu = new Date(); const mopt = ['<option value="">— kies —</option>']; for (let i = -14; i <= 1; i++){ const d = new Date(nu.getFullYear(), nu.getMonth() + i, 1); const m = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; mopt.push(`<option value="${m}"${m === p.maand ? ' selected' : ''}>${maandNaam(m)}</option>`); }
+  if (p.maand && !mopt.some(o => o.includes(`"${p.maand}"`))) mopt.push(`<option value="${p.maand}" selected>${maandNaam(p.maand)}</option>`);
+  const rij = (r, i) => { const f = c.rij[i], fw = c.rijW[i]; const wd = p.maand && r.dag >= 1 && r.dag <= 31 ? DAGEN[(parseYmd(`${p.maand}-${pad(Math.min(r.dag, bmDagenIn(p.maand)))}`).getDay() + 6) % 7] : '';
+    return `<tr data-i="${i}" class="zk-${r.zeker}${f.length && r.mee ? ' heeft-fout' : ''}" style="${r.mee ? '' : 'opacity:.5'}">
+    <td><input type="checkbox" data-f="mee"${r.mee ? ' checked' : ''} style="width:auto;height:auto" aria-label="Regel meenemen"></td>
+    <td style="white-space:nowrap"><input data-f="dag" inputmode="numeric" value="${r.dag || ''}" style="width:3.2em;text-align:right"> <small style="color:var(--muted)">${wd}</small></td>
+    <td><input data-f="kmBegin" inputmode="numeric" value="${r.kmBegin ?? ''}" style="width:7em;font-family:var(--f-mono);text-align:right"></td>
+    <td><input data-f="kmEinde" inputmode="numeric" value="${r.kmEinde ?? ''}" style="width:7em;font-family:var(--f-mono);text-align:right"></td>
+    <td><input data-f="liters" inputmode="decimal" value="${fmtN(r.liters)}" style="width:5.5em;font-family:var(--f-mono);text-align:right"></td>
+    <td><input data-f="station" value="${esc(r.station)}" style="width:6em"></td>
+    <td><input data-f="adblue" inputmode="decimal" value="${fmtN(r.adblue)}" style="width:4.5em;font-family:var(--f-mono);text-align:right"></td>
+    <td style="min-width:200px"><select data-f="zeker" style="width:auto"><option value="hoog"${r.zeker === 'hoog' ? ' selected' : ''}>hoog</option><option value="middel"${r.zeker === 'middel' ? ' selected' : ''}>middel</option><option value="laag"${r.zeker === 'laag' ? ' selected' : ''}>laag</option></select>${r.opmerking ? `<small style="display:block;color:var(--muted)">${esc(r.opmerking)}</small>` : ''}${f.length && r.mee ? `<small style="display:block;color:var(--bad)">${esc(f.join(', '))}</small>` : ''}${fw.length && r.mee ? `<small style="display:block;color:var(--warn)">${esc(fw.join(', '))}</small>` : ''}</td>
+    <td><button class="btn small danger" type="button" data-bmrijdel="${i}" aria-label="Regel verwijderen">×</button></td></tr>`; };
+  el.innerHTML = `<div class="bm-grid"><div>${foto}</div><div style="display:grid;gap:8px;min-width:0">
+    <div class="toolbar" style="gap:10px">${kop}<span class="sp"></span><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-pf="mee"${p.mee ? ' checked' : ''} style="width:auto;height:auto"> Opslaan</label></div>
+    <div class="vl-form" style="grid-template-columns:repeat(auto-fill,minmax(170px,1fr))">
+      <label>Kenteken<input data-pf="kenteken" value="${esc(p.kenteken)}" placeholder="bijv. 29-BZN-3"></label>
+      <label>Wagen uit wagenpark<select data-pf="wagen">${wopt}</select></label>
+      <label>Maand<select data-pf="maand">${mopt.join('')}</select></label></div>
+    ${c.fout.map(t => `<div class="msg bad">${esc(t[0].toUpperCase() + t.slice(1))}.</div>`).join('')}${c.waar.map(t => `<div class="msg warn">${esc(t)}</div>`).join('')}${p.algemeen ? `<div class="msg">${esc(p.algemeen)}</div>` : ''}
+    <div class="scroll"><table class="staat ocr" style="min-width:820px"><thead><tr><th>Mee</th><th>Dag</th><th class="n">Km begin</th><th class="n">Km einde</th><th class="n">Liters</th><th>Station</th><th class="n">AdBlue</th><th>Zekerheid</th><th></th></tr></thead>
+    <tbody>${p.rijen.map(rij).join('')}</tbody></table></div>
+    <div><button class="btn small" type="button" data-bmrijadd="1">Regel toevoegen</button></div></div></div>`;
+  el.style.opacity = p.mee ? '' : '.6';
+}
+function bmLeesPagina(el){ const p = BMD.paginas.find(x => x.nr === Number(el.dataset.p)); if (!p) return null;
+  el.querySelectorAll('[data-pf]').forEach(x => { const f = x.dataset.pf; if (f === 'mee') p.mee = x.checked; else if (f === 'maand'){ if (x.value !== p.maand){ p.maand = x.value; p.maandAangevuld = false; } } else p[f] = x.value; });
+  el.querySelectorAll('tr[data-i]').forEach(tr => { const r = p.rijen[Number(tr.dataset.i)]; if (!r) return;
+    tr.querySelectorAll('[data-f]').forEach(x => { const f = x.dataset.f;
+      if (f === 'mee') r.mee = x.checked; else if (f === 'zeker' || f === 'station') r[f] = x.value;
+      else { const v = getal(x.value); r[f] = Number.isFinite(v) ? (['dag', 'kmBegin', 'kmEinde'].includes(f) ? Math.round(v) : v) : null; } }); });
+  return p; }
+$('#bm-body').addEventListener('change', e => { if (!BMD) return; const el = e.target.closest('section[data-p]'); if (!el) return; const p = bmLeesPagina(el); if (!p) return;
+  const f = e.target.dataset.pf;
+  if (f === 'wagen' && p.wagen){ p.kenteken = waKent(p.wagen); p.kentekenZeker = 'hoog'; }
+  if (f === 'kenteken'){ const m = bmWagenBij(p.kenteken); p.wagen = m.wagen ? m.wagen.id : ''; p.lijkt = m.lijkt ? m.lijkt.id : ''; if (m.wagen) p.kenteken = m.wagen.kenteken; p.kentekenZeker = 'hoog'; }
+  if (f === 'maand') bmDagGrens(p);
+  // na het opnieuw tekenen de cursor terugzetten in het veld waar je naartoe ging (Tab)
+  setTimeout(() => { if (!BMD) return; const a = document.activeElement; const sec = a && a.closest && a.closest('#bm-body section[data-p]'); const tr = a && a.closest && a.closest('tr[data-i]');
+    const sleutel = sec && (a.dataset.f || a.dataset.pf) ? [sec.dataset.p, tr ? tr.dataset.i : '', a.dataset.f ? 'f' : 'pf', a.dataset.f || a.dataset.pf] : null;
+    BMD.paginas.forEach(toonBmPagina); toonBmKop();
+    if (sleutel){ const el = document.querySelector(`#bm-body section[data-p="${sleutel[0]}"] ${sleutel[1] !== '' ? `tr[data-i="${sleutel[1]}"] ` : ''}[data-${sleutel[2]}="${sleutel[3]}"]`); if (el){ el.focus(); if (el.select) try{ el.select(); }catch{} } } }, 0); });
+$('#bm-body').addEventListener('click', e => { if (!BMD) return; const el = e.target.closest('section[data-p]'); if (!el) return;
+  if (e.target.dataset.bmrijdel != null){ const p = bmLeesPagina(el); p.rijen.splice(Number(e.target.dataset.bmrijdel), 1); toonBmPagina(p); toonBmKop(); }
+  if (e.target.dataset.bmrijadd){ const p = bmLeesPagina(el); p.rijen.push({ dag: null, kmBegin: null, kmEinde: null, liters: null, station: '', adblue: null, mee: true, zeker: 'hoog', opmerking: 'handmatig toegevoegd' }); toonBmPagina(p); toonBmKop(); } });
+function bmSluiten(){ if (bmCtl) bmCtl.abort(); if ($('#bm-dlg').open) $('#bm-dlg').close(); if (BMD) BMD.paginas.forEach(p => { if (p.url) URL.revokeObjectURL(p.url); }); BMD = null; $('#bm-sluit').hidden = true; document.body.appendChild($('#toast')); bmStatus(); }
+$('#bm-close').onclick = () => { if (!BMD) return bmSluiten(); $('#bm-sluit').hidden = false; };
+$('#bm-sluit-nee').onclick = () => { $('#bm-sluit').hidden = true; };
+$('#bm-sluit-ja').onclick = bmSluiten;
+$('#bm-dlg').addEventListener('cancel', e => { e.preventDefault(); $('#bm-sluit').hidden = false; });
+$('#bm-ok').onclick = async () => {
+  if (!BMD) return; document.querySelectorAll('#bm-body section[data-p]').forEach(bmLeesPagina);
+  const mee = BMD.paginas.filter(p => p.mee && p.status === 'klaar');
+  const melding = t => { $('#bm-kop').innerHTML = `<div class="msg bad">${esc(t)}</div>`; toast(t); };
+  if (!mee.length) return melding('Er is geen pagina aangevinkt om op te slaan.');
+  const fout = mee.filter(p => { const c = bmControle(p); return c.fout.length || c.rij.some(x => x.length); });
+  if (fout.length){ BMD.paginas.forEach(toonBmPagina); return melding(`Pagina ${fout.map(p => p.nr).join(', ')} ${fout.length === 1 ? 'heeft' : 'hebben'} nog een fout (rode melding of rode streep). Verbeter die of vink de pagina of regel uit.`); }
+  const btn = $('#bm-ok'); btn.disabled = true; btn.textContent = 'Opslaan…';
+  try{
+    const docs = {};
+    for (const p of mee){ const key = bmKey(p.kenteken, p.maand);
+      let fotos = p.foto || []; if (!p.foto && p.blob && S.assets){ try{ const up = await S.assets.upload(p.blob, { type: 'image/jpeg' }); fotos = [up.id]; }catch{} }
+      const d = docs[key] = docs[key] || { kenteken: p.kenteken, wagen: p.wagen || null, maand: p.maand, rijen: [], fotos: [], bron: BMD.bewerk ? 'aangepast' : 'scan', aangemaakt: new Date().toISOString() };
+      d.fotos.push(...fotos); d.rijen.push(...p.rijen.filter(r => r.mee && r.dag).map(r => ({ dag: r.dag, kmBegin: r.kmBegin, kmEinde: r.kmEinde, liters: r.liters, station: r.station, adblue: r.adblue, zeker: r.zeker, opmerking: r.opmerking }))); }
+    if (BMD.bewerk && !docs[BMD.bewerk]) await Store.del('beheer/vloot/maandstaat/' + BMD.bewerk);
+    for (const [k, d] of Object.entries(docs)){ d.rijen.sort((a, b) => a.dag - b.dag); await Store.set('beheer/vloot/maandstaat/' + k, d); }
+    const maand = mee[0].maand, n = Object.keys(docs).length; bmSluiten(); BM.maand = maand; renderBm();
+    toast(`Akkoord: ${n} maandsta${n === 1 ? 'at' : 'ten'} opgeslagen.`);
+  }catch(err){ melding(errMsg(err)); }
+  finally{ const b = $('#bm-ok'); b.disabled = false; }
+};
+
+function renderVloot(){ ovVerversen(); if (!S.beheer) return; renderBrandstof(); renderTechniek(); if (huidigeTab==='kostprijs') renderKostprijs(); if (huidigeTab==='bmaand') renderBm(); }
 
 /* ---------- STEL JE VRAAG (hulp over het dashboard, via Claude) ---------- */
 const HANDLEIDING = `HANDLEIDING DASHBOARD HAVAS HOUTTRANSPORT (Elspeet)

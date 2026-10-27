@@ -48,6 +48,7 @@ Implements those capabilities on Supabase:
 | `beheer/planning/weken/<jaar-Wnn>` | `{afspraken[], regels{…}, regelsVragen[], regelsOnbegrepen[]}`: free-text constraints and the structured rules the planning engine uses |
 | `beheer/planning/plaatsen/<norm naam>` | `{naam, lat, lon, zeker, bron:'claude'|'handmatig'}`: place coordinates for distance estimates |
 | `beheer/vloot/(tank\|onderhoud\|wagens)/<id>` | fuel, maintenance, vehicles |
+| `beheer/vloot/maandstaat/<norm kenteken>-<YYYY-MM>` | handwritten monthly fuel sheet read by Claude `{kenteken, wagen, maand, rijen[{dag, kmBegin, kmEinde, liters, station, adblue, zeker, opmerking}], fotos[]}`; weekly km/l per kenteken is computed on display (tab "Maandoverzichten brandstof") |
 
 ## Planning engine
 The planningsvoorstel no longer asks Claude to write the whole schedule; that does not scale to 100+ loads.
